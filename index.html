@@ -22,8 +22,10 @@
           <li class="help-touch">左下搖桿：行路</li>
           <li class="help-touch">右下「跑」「跳」掣</li>
           <li class="help-touch">拖曳畫面：轉鏡頭</li>
+          <li class="help-touch">能量滿：撳「AI 加速」</li>
           <li class="help-desk">WASD／方向鍵：行路　Shift：跑</li>
           <li class="help-desk">空白鍵：跳　滑鼠拖曳：轉鏡頭</li>
+          <li class="help-desk">E：AI 加速（能量滿先用得）</li>
         </ul>
       </div>
     </section>
@@ -34,6 +36,9 @@
         <div>
           <div class="hud-name">Anson</div>
           <div class="hud-count"><span class="gem">◆</span> 寶藏 <b id="count">0</b>/3</div>
+          <div class="hud-energy" id="energy" role="meter" aria-label="AI 能量" aria-valuemin="0" aria-valuemax="3" aria-valuenow="0">
+            <span>AI 能量</span><i></i><i></i><i></i>
+          </div>
         </div>
       </div>
       <div id="objective" class="objective"></div>
@@ -59,6 +64,10 @@
       <div id="joystick" class="joystick touch-only" aria-label="移動搖桿">
         <div class="joy-base"><div class="joy-knob" id="joy-knob"></div></div>
       </div>
+      <button id="boost-btn" class="boost-btn" hidden aria-label="AI 加速">
+        <span class="boost-label">AI<br />加速</span>
+        <kbd class="boost-key">E</kbd>
+      </button>
       <div class="action-btns touch-only">
         <button id="run-btn" class="act-btn">跑</button>
         <button id="jump-btn" class="act-btn">跳</button>

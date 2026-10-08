@@ -300,3 +300,80 @@ export class Burst {
     if (this.life <= 0) this.points.visible = false;
   }
 }
+
+const TRAIL_MAX = 48;
+
+/** Gold light ribbon left behind the feet during AI Boost; points fade out by age. */
+export class FootTrail {
+  readonly mesh: THREE.Mesh;
+  /** Max points kept; lowered on the battery-saver quality level. */
+  max = TRAIL_MAX;
+  private pts: { x: number; z: number; t: number }[] = [];
+  private pos = new Float32Array(TRAIL_MAX * 2 * 3);
+  private fade = new Float32Array(TRAIL_MAX * 2);
+  private geo = new THREE.BufferGeometry();
+  private life = 0.55;
+
+  constructor() {
+    this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
+    this.geo.setAttribute('fade', new THREE.BufferAttribute(this.fade, 1).setUsage(THREE.DynamicDrawUsage));
+    const idx: number[] = [];
+    for (let i = 0; i < TRAIL_MAX - 1; i++) {
+      const a = i * 2;
+      idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+    this.geo.setIndex(idx);
+    this.geo.setDrawRange(0, 0);
+    const mat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      vertexShader: /* glsl */ `
+        attribute float fade;
+        varying float vFade;
+        void main() { vFade = fade; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
+      `,
+      fragmentShader: /* glsl */ `
+        varying float vFade;
+        void main() {
+          float a = (1.0 - vFade) * (1.0 - vFade) * 0.95;
+          gl_FragColor = vec4(mix(vec3(1.0, 0.95, 0.7), vec3(1.0, 0.7, 0.15), vFade) * a, a);
+        }
+      `,
+    });
+    this.mesh = new THREE.Mesh(this.geo, mat);
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 3;
+  }
+
+  get points() {
+    return this.pts.length;
+  }
+
+  update(x: number, z: number, emitting: boolean, now: number) {
+    const last = this.pts[0];
+    if (emitting && (!last || Math.hypot(x - last.x, z - last.z) > 0.25)) this.pts.unshift({ x, z, t: now });
+    while (this.pts.length > this.max || (this.pts.length && now - this.pts[this.pts.length - 1].t > this.life)) this.pts.pop();
+    const n = this.pts.length;
+    this.mesh.visible = n > 1;
+    if (n < 2) return;
+    for (let i = 0; i < n; i++) {
+      const a = this.pts[Math.max(0, i - 1)];
+      const b = this.pts[Math.min(n - 1, i + 1)];
+      let tx = b.x - a.x;
+      let tz = b.z - a.z;
+      const tl = Math.hypot(tx, tz) || 1;
+      tx /= tl;
+      tz /= tl;
+      const f = Math.min(1, (now - this.pts[i].t) / this.life);
+      const w = 0.32 * (1 - f * 0.7);
+      const p = this.pts[i];
+      this.pos.set([p.x - tz * w, 0.14, p.z + tx * w, p.x + tz * w, 0.14, p.z - tx * w], i * 6);
+      this.fade[i * 2] = this.fade[i * 2 + 1] = f;
+    }
+    (this.geo.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+    (this.geo.getAttribute('fade') as THREE.BufferAttribute).needsUpdate = true;
+    this.geo.setDrawRange(0, (n - 1) * 6);
+  }
+}

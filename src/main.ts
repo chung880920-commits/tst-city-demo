@@ -3,7 +3,7 @@ import './style.css';
 import { Sound } from './audio';
 import { createAvatar, renderPortraits } from './avatar';
 import { createLights, createSky, createTimeOfDay, createWater, FOG_COLOR, SUN_DIR } from './env';
-import { Burst, GuideLine, Navigator } from './guide';
+import { Burst, FootTrail, GuideLine, Navigator } from './guide';
 import { Input } from './input';
 import { Minimap } from './minimap';
 import { BOUNDS, buildWorld, CHECKPOINTS, CLOCK_TOWER, ZONES, type AABB } from './world';
@@ -37,7 +37,14 @@ interface Progress {
   x: number;
   z: number;
   heading: number;
+  energy?: number;
 }
+
+/** No 中/EN switch exists yet; the English line is kept here for when one is added. */
+const BOOST_LINE = { zh: '轉型唔係換人，係升級自己', en: "Transformation isn't replacing you. It's upgrading you." };
+const BOOST_TIME = { transform: 1.0, active: 5.0, fold: 0.8 };
+const ENERGY_MAX = 3;
+const RECHARGE_SECONDS = 12;
 
 const IDLE_LINES = ['差少少啫，跟住金線行！', '下一站就喺前面，跟住金線行！', '加油！跟住地上金線就搵到！'];
 
@@ -148,6 +155,10 @@ function boot() {
   scene.add(guide.mesh);
   const burst = new Burst(140);
   scene.add(burst.points);
+  const trail = new FootTrail();
+  scene.add(trail.mesh);
+  type BoostPhase = 'idle' | 'transform' | 'active' | 'fold';
+  const boost = { phase: 'idle' as BoostPhase, t: 0, k: 0, thrust: 0, energy: 0, recharge: 0, announced: false };
 
   // -------------------------------------------------------------- systems
   const input = new Input(canvas);
@@ -175,6 +186,7 @@ function boot() {
       });
     }
     blob.visible = !shadows;
+    trail.max = quality === 'ultra' ? 14 : quality === 'low' ? 26 : 48;
     document.querySelectorAll<HTMLButtonElement>('[data-quality]').forEach((b) => b.classList.toggle('active', b.dataset.quality === quality));
     resize();
   };
@@ -242,10 +254,11 @@ function boot() {
       cam.yaw += angleTo(cam.yaw, player.heading + Math.PI) * Math.min(1, dt * 1.6 * moving);
     }
 
-    const goal = tmpDir.set(player.pos.x, player.pos.y + 1.75 - cam.push * 0.5, player.pos.z);
+    const closeK = Math.max(0, cam.push);
+    const goal = tmpDir.set(player.pos.x, player.pos.y + 1.75 - closeK * 0.5, player.pos.z);
     cam.focus.lerp(goal, Math.min(1, dt * 14));
 
-    const pitch = THREE.MathUtils.lerp(cam.pitch, 0.16, cam.push);
+    const pitch = THREE.MathUtils.lerp(cam.pitch, 0.16, closeK);
     const dir = new THREE.Vector3(Math.sin(cam.yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(cam.yaw) * Math.cos(pitch));
     const desired = cam.dist * (camera.aspect < 1 ? 1.15 : 1) * (1 - 0.55 * cam.push);
     let hit = desired;
@@ -266,34 +279,13 @@ function boot() {
   const GRAVITY = 24;
   const JUMP_V = 7.5;
 
-  const stepPlayer = (dt: number) => {
-    input.poll();
-    const mx = input.move.x;
-    const my = input.move.y;
-    const mag = Math.min(1, Math.hypot(mx, my));
-    const fwdX = -Math.sin(cam.yaw);
-    const fwdZ = -Math.cos(cam.yaw);
-    const rightX = Math.cos(cam.yaw);
-    const rightZ = -Math.sin(cam.yaw);
-    const speed = input.running ? RUN : WALK;
-    const tx = (fwdX * my + rightX * mx) * speed;
-    const tz = (fwdZ * my + rightZ * mx) * speed;
-    const accel = player.grounded ? 12 : 4;
-    player.vel.x += (tx - player.vel.x) * Math.min(1, dt * accel);
-    player.vel.z += (tz - player.vel.z) * Math.min(1, dt * accel);
+  const BOOST_SPEED = RUN * 2;
+  /** Largest horizontal move per collision pass; well under the player radius so nothing tunnels. */
+  const SUBSTEP = 0.18;
+  const lastSafe = new THREE.Vector3().copy(player.pos);
 
-    player.pos.x += player.vel.x * dt;
-    player.pos.z += player.vel.z * dt;
-
-    // jump & gravity
-    if (input.consumeJump() && player.grounded) {
-      player.vy = JUMP_V;
-      player.grounded = false;
-    }
-    player.vy -= GRAVITY * dt;
-    player.pos.y += player.vy * dt;
-
-    // collisions: circle vs boxes in XZ
+  /** Pushes the player circle out of every box it overlaps; returns the floor height underneath. */
+  const resolveCollisions = () => {
     let ground = BASE_Y;
     const r = player.radius;
     for (let iter = 0; iter < 2; iter++) {
@@ -307,8 +299,8 @@ function boot() {
         }
         const cx = THREE.MathUtils.clamp(player.pos.x, c.minX, c.maxX);
         const cz = THREE.MathUtils.clamp(player.pos.z, c.minZ, c.maxZ);
-        let dx = player.pos.x - cx;
-        let dz = player.pos.z - cz;
+        const dx = player.pos.x - cx;
+        const dz = player.pos.z - cz;
         const d2 = dx * dx + dz * dz;
         if (d2 > r * r) continue;
         if (d2 > 1e-8) {
@@ -323,11 +315,67 @@ function boot() {
           else if (m === pen[2]) player.pos.z = c.minZ - r;
           else player.pos.z = c.maxZ + r;
         }
-        dx = dz = 0;
       }
     }
     player.pos.x = THREE.MathUtils.clamp(player.pos.x, BOUNDS.minX, BOUNDS.maxX);
     player.pos.z = THREE.MathUtils.clamp(player.pos.z, BOUNDS.minZ, BOUNDS.maxZ);
+    return ground;
+  };
+
+  const insideSolid = () => {
+    for (const c of colliders) {
+      if (player.pos.y + 0.3 >= c.h) continue;
+      if (player.pos.x > c.minX + 0.05 && player.pos.x < c.maxX - 0.05 && player.pos.z > c.minZ + 0.05 && player.pos.z < c.maxZ - 0.05) return true;
+    }
+    return false;
+  };
+
+  const stepPlayer = (dt: number) => {
+    input.poll();
+    const mx = input.move.x;
+    const my = input.move.y;
+    const mag = Math.min(1, Math.hypot(mx, my));
+    const fwdX = -Math.sin(cam.yaw);
+    const fwdZ = -Math.cos(cam.yaw);
+    const rightX = Math.cos(cam.yaw);
+    const rightZ = -Math.sin(cam.yaw);
+    const boosting = boost.phase === 'active';
+    const speed = boosting ? BOOST_SPEED : input.running ? RUN : WALK;
+    const tx = (fwdX * my + rightX * mx) * speed;
+    const tz = (fwdZ * my + rightZ * mx) * speed;
+    const accel = player.grounded ? (boosting ? 7 : 12) : 4;
+    player.vel.x += (tx - player.vel.x) * Math.min(1, dt * accel);
+    player.vel.z += (tz - player.vel.z) * Math.min(1, dt * accel);
+    const planarNow = Math.hypot(player.vel.x, player.vel.z);
+    const cap = boosting ? BOOST_SPEED : RUN;
+    if (planarNow > cap) player.vel.multiplyScalar(cap / planarNow);
+
+    // jump & gravity
+    if (input.consumeJump() && player.grounded) {
+      player.vy = JUMP_V;
+      player.grounded = false;
+    }
+    player.vy -= GRAVITY * dt;
+    player.pos.y += player.vy * dt;
+
+    // swept movement: split the frame's motion into substeps and resolve each one
+    const moveX = player.vel.x * dt;
+    const moveZ = player.vel.z * dt;
+    const steps = Math.max(1, Math.ceil(Math.hypot(moveX, moveZ) / SUBSTEP));
+    let ground = BASE_Y;
+    for (let i = 0; i < steps; i++) {
+      player.pos.x += moveX / steps;
+      player.pos.z += moveZ / steps;
+      ground = resolveCollisions();
+    }
+    if (insideSolid()) {
+      player.pos.x = lastSafe.x;
+      player.pos.z = lastSafe.z;
+      player.vel.x = player.vel.z = 0;
+      ground = resolveCollisions();
+    } else {
+      lastSafe.set(player.pos.x, 0, player.pos.z);
+    }
 
     if (player.pos.y <= ground) {
       player.pos.y = ground;
@@ -335,6 +383,10 @@ function boot() {
       player.grounded = true;
     } else if (player.pos.y > ground + 0.05) {
       player.grounded = false;
+    }
+    if (!Number.isFinite(player.pos.y) || player.pos.y < -1) {
+      player.pos.set(lastSafe.x, BASE_Y, lastSafe.z);
+      player.vy = 0;
     }
 
     const planar = Math.hypot(player.vel.x, player.vel.z);
@@ -348,7 +400,7 @@ function boot() {
     blob.position.set(player.pos.x, ground + 0.03, player.pos.z);
     const lift = player.pos.y - ground;
     blob.scale.setScalar(Math.max(0.4, 1 - lift * 0.25));
-    return { move: planar / WALK, running: input.running && planar > WALK * 0.9 };
+    return { move: planar / WALK, running: (input.running || boosting) && planar > WALK * 0.9 };
   };
 
   // -------------------------------------------------------------------- UI
@@ -399,7 +451,7 @@ function boot() {
 
   // ------------------------------------------------------------- progress
   const saveProgress = () => {
-    const p: Progress = { found: [...found], x: player.pos.x, z: player.pos.z, heading: player.heading };
+    const p: Progress = { found: [...found], x: player.pos.x, z: player.pos.z, heading: player.heading, energy: boost.energy };
     store.set(PROGRESS_KEY, JSON.stringify(p));
   };
   const loadProgress = () => {
@@ -417,6 +469,8 @@ function boot() {
         player.pos.set(THREE.MathUtils.clamp(p.x, BOUNDS.minX, BOUNDS.maxX), BASE_Y, THREE.MathUtils.clamp(p.z, BOUNDS.minZ, BOUNDS.maxZ));
         player.heading = Number.isFinite(p.heading) ? p.heading : player.heading;
       }
+      boost.energy = THREE.MathUtils.clamp(Math.floor(Number(p.energy) || 0), 0, ENERGY_MAX);
+      boost.announced = boost.energy >= ENERGY_MAX;
       const note = $('resume-note');
       note.hidden = false;
       note.textContent = found.size === CHECKPOINTS.length ? '已完成全部寶藏，可以繼續周圍行' : `已保存進度：${found.size}/${CHECKPOINTS.length}，撳開始繼續`;
@@ -445,9 +499,14 @@ function boot() {
   const closeModal = (id: string) => {
     $(id).hidden = true;
     state = 'play';
-    input.enabled = true;
-    cam.pushTarget = 0;
+    input.enabled = boost.phase !== 'transform';
+    cam.pushTarget = boost.phase === 'active' ? -0.3 : 0;
     canvas.focus({ preventScroll: true });
+    if (boost.energy >= ENERGY_MAX && !boost.announced && boost.phase === 'idle') {
+      boost.announced = true;
+      showToast(input.isTouch ? 'AI 能量滿咗！撳「AI 加速」' : 'AI 能量滿咗！按 E 啟動 AI 加速');
+    }
+    syncEnergy();
   };
 
   let rewardTimer = 0;
@@ -457,6 +516,8 @@ function boot() {
     const v = cpVisuals.find((c) => c.cp.id === id)!;
     setCheckpointDone(id, true);
     updateCount();
+    if (boost.phase === 'idle') boost.energy = Math.min(ENERGY_MAX, boost.energy + 1);
+    syncEnergy();
     saveProgress();
     $('popup-name').textContent = v.cp.name;
 
@@ -476,6 +537,11 @@ function boot() {
   const resetProgress = () => {
     found.clear();
     for (const v of cpVisuals) setCheckpointDone(v.cp.id, false);
+    endBoost();
+    boost.energy = 0;
+    boost.recharge = 0;
+    boost.announced = false;
+    syncEnergy();
     updateCount();
     store.set(PROGRESS_KEY, null);
     teleport(SPAWN.x, SPAWN.z, SPAWN.heading);
@@ -572,34 +638,128 @@ function boot() {
     player.pos.set(x, BASE_Y, z);
     player.vel.set(0, 0, 0);
     player.heading = heading;
+    lastSafe.set(x, 0, z);
     cam.yaw = heading + Math.PI;
     cam.focus.set(x, BASE_Y + 1.45, z);
   };
 
-  // ------------------------------------------------------------ idle hint
+  // ------------------------------------------------------------ idle hint & speech
   const bubble = $('bubble');
   let lastMoveAt = performance.now();
   let hintShown = false;
+  let sayText = '';
+  let sayUntil = 0;
   const headPos = new THREE.Vector3();
   const IDLE_SECONDS = 15;
+  const say = (text: string, seconds: number) => {
+    sayText = text;
+    sayUntil = performance.now() + seconds * 1000;
+  };
   const updateIdleHint = (moving: boolean) => {
     const now = performance.now();
-    if (moving || state !== 'play' || !nextCheckpoint()) lastMoveAt = now;
-    const show = state === 'play' && now - lastMoveAt > IDLE_SECONDS * 1000;
-    if (show && !hintShown) {
-      bubble.textContent = IDLE_LINES[Math.floor(Math.random() * IDLE_LINES.length)];
-      bubble.hidden = false;
-      objective.classList.add('pulse');
-    } else if (!show && hintShown) {
-      bubble.hidden = true;
-      objective.classList.remove('pulse');
-    }
-    hintShown = show;
+    const saying = now < sayUntil;
+    if (moving || saying || state !== 'play' || !nextCheckpoint()) lastMoveAt = now;
+    const hint = state === 'play' && now - lastMoveAt > IDLE_SECONDS * 1000;
+    if (hint && !hintShown) bubble.textContent = IDLE_LINES[Math.floor(Math.random() * IDLE_LINES.length)];
+    if (saying) bubble.textContent = sayText;
+    objective.classList.toggle('pulse', hint);
+    const show = saying || hint;
+    if (bubble.hidden === show) bubble.hidden = !show;
+    hintShown = hint;
     if (show) {
       headPos.set(player.pos.x, player.pos.y + 2.45, player.pos.z).project(camera);
       bubble.style.left = `${((headPos.x + 1) / 2) * window.innerWidth}px`;
       bubble.style.top = `${((1 - headPos.y) / 2) * window.innerHeight}px`;
     }
+  };
+
+  // -------------------------------------------------------------- AI Boost
+  const boostBtn = $<HTMLButtonElement>('boost-btn');
+  const energyEl = $('energy');
+  const pips = [...energyEl.querySelectorAll<HTMLElement>('i')];
+  const canBoost = () => state === 'play' && boost.phase === 'idle' && boost.energy >= ENERGY_MAX;
+  const syncEnergy = () => {
+    const fill = boost.phase === 'active' ? ENERGY_MAX * (1 - boost.t / BOOST_TIME.active) : boost.phase === 'idle' ? boost.energy + boost.recharge / RECHARGE_SECONDS : 0;
+    pips.forEach((p, i) => p.style.setProperty('--f', THREE.MathUtils.clamp(fill - i, 0, 1).toFixed(2)));
+    energyEl.classList.toggle('full', canBoost());
+    energyEl.setAttribute('aria-valuenow', String(boost.energy));
+    const ready = canBoost();
+    if (boostBtn.hidden === ready) boostBtn.hidden = !ready;
+    boostBtn.disabled = !ready;
+  };
+  const triggerBoost = () => {
+    if (!canBoost()) return false;
+    boost.phase = 'transform';
+    boost.t = 0;
+    boost.energy = 0;
+    boost.recharge = 0;
+    boost.announced = false;
+    input.enabled = false;
+    input.reset();
+    player.vel.set(0, 0, 0);
+    cam.pushTarget = 1;
+    sound.transform();
+    say(BOOST_LINE.zh, 3.2);
+    burst.fire(player.pos.x, 1.2, player.pos.z, quality === 'ultra' ? 14 : quality === 'low' ? 28 : 45);
+    if (navigator.vibrate) navigator.vibrate(35);
+    syncEnergy();
+    saveProgress();
+    return true;
+  };
+  const endBoost = () => {
+    if (boost.phase === 'active' || boost.phase === 'transform') sound.thrust(false);
+    if (boost.phase === 'transform' && state === 'play') input.enabled = true;
+    boost.phase = 'idle';
+    boost.k = 0;
+    boost.thrust = 0;
+    avatar.armor(0, 0, 0);
+  };
+  boostBtn.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    triggerBoost();
+  });
+  boostBtn.addEventListener('click', () => triggerBoost());
+  syncEnergy();
+
+  const updateBoost = (dt: number, moving: number) => {
+    if (state === 'play' && input.consumeBoost()) triggerBoost();
+    if (state === 'play' && boost.phase === 'idle' && found.size === CHECKPOINTS.length && boost.energy < ENERGY_MAX) {
+      boost.recharge += dt;
+      if (boost.recharge >= RECHARGE_SECONDS) {
+        boost.recharge = 0;
+        boost.energy++;
+        if (boost.energy >= ENERGY_MAX && !boost.announced) {
+          boost.announced = true;
+          showToast(input.isTouch ? 'AI 能量滿咗！撳「AI 加速」' : 'AI 能量滿咗！按 E 啟動 AI 加速');
+        }
+      }
+    }
+    if (boost.phase === 'idle' || state !== 'play') return;
+    boost.t += dt;
+    if (boost.phase === 'transform') {
+      boost.k = Math.min(1, boost.t / BOOST_TIME.transform);
+      if (boost.t >= BOOST_TIME.transform) {
+        boost.phase = 'active';
+        boost.t = 0;
+        input.enabled = true;
+        cam.pushTarget = -0.3;
+        sound.thrust(true);
+      }
+    } else if (boost.phase === 'active') {
+      boost.k = 1;
+      if (boost.t >= BOOST_TIME.active) {
+        boost.phase = 'fold';
+        boost.t = 0;
+        cam.pushTarget = 0;
+        sound.thrust(false);
+        sound.fold();
+      }
+    } else if (boost.phase === 'fold') {
+      boost.k = Math.max(0, 1 - boost.t / BOOST_TIME.fold);
+      if (boost.t >= BOOST_TIME.fold) endBoost();
+    }
+    const thrustGoal = boost.phase === 'active' ? (moving > 0.3 ? 1 : 0.35) : 0;
+    boost.thrust += (thrustGoal - boost.thrust) * Math.min(1, dt * 8);
   };
 
   // ----------------------------------------------------------------- guide
@@ -704,6 +864,9 @@ function boot() {
     } else {
       const res = state === 'play' ? stepPlayer(dt) : { move: 0, running: false };
       if (state !== 'play') input.poll();
+      updateBoost(realDt, res.move);
+      avatar.armor(boost.k, boost.thrust, t);
+      trail.update(player.pos.x, player.pos.z, boost.phase === 'active' && res.move > 0.5, t);
       const stepped = avatar.update(dt, t, res.move, res.running, !player.grounded);
       if (stepped) sound.step(res.running);
       updateCamera(dt, res.move);
@@ -734,6 +897,7 @@ function boot() {
       if (hudTick <= 0) {
         hudTick = 0.25;
         updateObjective();
+        syncEnergy();
       }
       ambTick -= dt;
       if (ambTick <= 0) {
@@ -794,8 +958,18 @@ function boot() {
       }
       syncNight();
     },
+    setEnergy: (n: number) => {
+      boost.energy = THREE.MathUtils.clamp(n, 0, ENERGY_MAX);
+      syncEnergy();
+    },
+    boost: () => triggerBoost(),
     info: () => ({
       fps,
+      boost: { phase: boost.phase, t: boost.t, k: boost.k, energy: boost.energy, thrust: boost.thrust },
+      trailPoints: trail.points,
+      boostBtn: { hidden: boostBtn.hidden, disabled: boostBtn.disabled },
+      insideSolid: insideSolid(),
+      vel: Math.hypot(player.vel.x, player.vel.z),
       ...renderer.info.render,
       pos: player.pos.toArray(),
       heading: player.heading,

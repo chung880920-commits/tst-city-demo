@@ -184,6 +184,76 @@ export class Sound {
     for (let i = 0; i < 8; i++) this.bell(2600 + Math.random() * 1800, t + 0.35 + i * 0.05, 0.3, 0.025, this.sfx);
   }
 
+  private whoosh(at: number, dur: number, f0: number, f1: number, vol: number) {
+    const ctx = this.ctx!;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.value = 2.2;
+    bp.frequency.setValueAtTime(f0, at);
+    bp.frequency.exponentialRampToValueAtTime(f1, at + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(vol, at + dur * 0.6);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    src.connect(bp).connect(g).connect(this.sfx);
+    src.start(at, Math.random(), dur + 0.05);
+  }
+
+  /** AI Boost: knit tiles flipping (rising wooden plucks), a weave whoosh, then a warm chord. */
+  transform() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime + 0.02;
+    const scale = [392, 440, 523.25, 587.33, 659.25, 784, 880, 1046.5];
+    for (let i = 0; i < 14; i++) {
+      const f = scale[i % scale.length] * (i >= scale.length ? 2 : 1);
+      this.bell(f, t + i * 0.055, 0.16, 0.07, this.sfx, 'triangle');
+    }
+    this.whoosh(t, 0.9, 260, 2600, 0.16);
+    for (const f of [261.63, 329.63, 392, 493.88, 587.33]) this.bell(f, t + 0.8, 1.4, 0.06, this.sfx, 'triangle');
+    this.bell(2093, t + 0.82, 0.9, 0.05, this.sfx);
+  }
+
+  /** Plates folding back into the cardigan: the same plucks, descending. */
+  fold() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime + 0.02;
+    const scale = [1046.5, 880, 784, 659.25, 587.33, 523.25, 440, 392];
+    scale.forEach((f, i) => this.bell(f, t + i * 0.06, 0.14, 0.06, this.sfx, 'triangle'));
+    this.whoosh(t, 0.6, 2200, 300, 0.1);
+  }
+
+  private thrustGain: GainNode | null = null;
+
+  /** Soft airy hum while the thrusters run. */
+  thrust(on: boolean) {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    if (!this.thrustGain) {
+      this.thrustGain = ctx.createGain();
+      this.thrustGain.gain.value = 0;
+      this.thrustGain.connect(this.sfx);
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise;
+      src.loop = true;
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = 900;
+      bp.Q.value = 0.8;
+      const hum = ctx.createOscillator();
+      hum.type = 'sine';
+      hum.frequency.value = 196;
+      const humG = ctx.createGain();
+      humG.gain.value = 0.25;
+      src.connect(bp).connect(this.thrustGain);
+      hum.connect(humG).connect(this.thrustGain);
+      src.start();
+      hum.start();
+    }
+    this.thrustGain.gain.setTargetAtTime(on ? 0.12 : 0, ctx.currentTime, on ? 0.15 : 0.25);
+  }
+
   jingle() {
     if (!this.ctx) return;
     const t = this.ctx.currentTime + 0.05;

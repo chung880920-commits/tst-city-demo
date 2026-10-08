@@ -30,6 +30,7 @@ names and signs are fictional. See [`CREDITS.md`](./CREDITS.md).
 | Run | Hold Shift | 「跑」 button (toggle) |
 | Jump | Space | 「跳」 button |
 | Camera | Drag with mouse | Drag anywhere on the 3D view |
+| AI 加速 (when energy is full) | **E** or click the 「AI 加速」 button | 「AI 加速」 button (above 跑) |
 
 ### HUD buttons (top right)
 
@@ -58,9 +59,32 @@ the game measures fps for ~3.5 s and steps down (below 45 fps: 高畫質 → 流
   the avatar cheers, a gold chime plays and the phone vibrates (where supported).
   The completion card adds a short jingle.
 
+### AI 加速 / AI Boost 「針織戰甲」
+
+Each landmark unlock fills one of three **AI 能量** segments (shown under the treasure count).
+When all three are full the large 「AI 加速」 button appears and pulses (desktop: press **E**).
+It is a single press; there is no double-tap trigger. After all three landmarks are found,
+energy refills by one segment every 12 s so you can keep boosting while you explore.
+
+- **Transform (1 s):** the camera moves in close and the cardigan's knit tiles flip over one by
+  one into navy / cream / teal plates with gold trim. Two compact thrusters slide out of the
+  back, and the bubble says 「轉型唔係換人，係升級自己」.
+- **Boost (5 s):** top speed is 2 × run speed (15.2 m/s), the camera pulls back a little, and a
+  gold light trail follows the feet. The energy bar drains as the time runs out.
+- **Fold back (0.8 s):** the plates flip back into the cardigan.
+
+Movement is swept: each frame's motion is split into steps of 0.18 m or less (under half the
+player radius), and collisions are resolved after every step. If the player still ends up inside
+a solid box, they snap back to the last safe position. The map bounds are clamped, so even at
+boost speed you can't pass through buildings, railings or the pier, or leave the map. On 省電
+the burst uses fewer particles and the trail is shorter. The plates add about 20 small meshes,
+and only while the boost is showing. The English line
+"Transformation isn't replacing you. It's upgrading you." is kept in `BOOST_LINE` in
+`src/main.ts`, ready for when a 中/EN switch is added.
+
 ### Saved progress
 
-Found checkpoints and your position are saved in `localStorage` (`tst-progress-v1`)
+Found checkpoints, AI energy and your position are saved in `localStorage` (`tst-progress-v1`)
 every few seconds and on each unlock, so a reload continues where you left off.
 Settings → 「重新開始尋寶」 clears it. Mute (`tst-muted`), night (`tst-night`) and a
 manual quality choice (`tst-quality`) are remembered too.

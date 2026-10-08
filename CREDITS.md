@@ -30,10 +30,22 @@ filters). They were written for this project and are released as
 | City rumble | Looping low-passed brown noise; louder in the streets, softer at night | CC0 (self-made) |
 | Tram bell 「叮叮」 | Two sine-bell partial pairs, played at random every 14–30 s | CC0 (self-made) |
 | Gold unlock chime | Rising C-major arpeggio (C6–E6–G6–C7) of sine bells plus sparkle tones | CC0 (self-made) |
+| AI Boost transform 「針織戰甲」 | 14 rising pentatonic triangle-wave plucks (one per knit tile flipping), a band-passed noise "weave" whoosh sweeping up, then a soft Cmaj9 chord | CC0 (self-made) |
+| AI Boost thruster hum | Looping band-passed noise plus a quiet 196 Hz sine, faded in/out | CC0 (self-made) |
+| AI Boost fold-back | The same plucks descending, with a downward whoosh | CC0 (self-made) |
 | Completion jingle | Original 8-beat triangle-wave fanfare with a bass line (not based on any existing tune) | CC0 (self-made) |
 
 Text is rendered with the visitor's system fonts (for example PingFang HK, Microsoft
 JhengHei or Noto Sans TC); no font files are bundled.
+
+## Original character feature: AI 加速 / Knit Armor
+
+The 「針織戰甲」 boost is an original design for this project: the avatar's own cable-knit
+cardigan tiles flip over into a few low-poly navy / cream / teal plates with gold trim, and two
+small thrusters slide out of the back plate. It deliberately avoids any well-known franchise
+look: no red-and-gold suit, no glowing chest light, no helmet or mask (his face stays
+visible), no vehicle-to-robot change, and the sounds are soft marimba-like plucks rather than
+mechanical transformation or repulsor effects.
 
 ## Names, brands and likeness
 

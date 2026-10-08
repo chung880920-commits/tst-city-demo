@@ -4,6 +4,7 @@ export class Input {
   runHeld = false;
   runToggle = false;
   jumpQueued = false;
+  boostQueued = false;
   orbitDX = 0;
   orbitDY = 0;
   lastOrbitAt = -10;
@@ -30,6 +31,7 @@ export class Input {
       const k = e.code;
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(k)) e.preventDefault();
       if (k === 'Space' && !e.repeat) this.jumpQueued = true;
+      if (k === 'KeyE' && !e.repeat) this.boostQueued = true;
       this.keys.add(k);
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
@@ -162,11 +164,18 @@ export class Input {
     return j;
   }
 
+  consumeBoost() {
+    const b = this.boostQueued;
+    this.boostQueued = false;
+    return b;
+  }
+
   reset() {
     this.keys.clear();
     this.joy.id = -1;
     this.joy.x = this.joy.y = 0;
     this.knob.style.transform = '';
     this.jumpQueued = false;
+    this.boostQueued = false;
   }
 }

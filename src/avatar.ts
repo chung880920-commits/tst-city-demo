@@ -144,12 +144,113 @@ class Part {
   }
 }
 
+/** 「針織戰甲」 palette: GoProjects navy / cream / teal with gold accents. */
+const ARMOR = {
+  navy: '#1b3560',
+  navyDeep: '#12264a',
+  cream: '#f3ead6',
+  teal: '#1fa39a',
+  tealDeep: '#147a74',
+  gold: '#f5c542',
+};
+
 export interface Avatar {
   root: THREE.Group;
   /** Returns true on the frame a foot hits the ground. */
   update: (dt: number, t: number, move: number, running: boolean, airborne: boolean) => boolean;
   cheer: (seconds?: number) => void;
+  /** k: 0 = plain cardigan, 1 = full Knit Armor. thrust: 0..1 flame strength. */
+  armor: (k: number, thrust: number, time: number) => void;
 }
+
+interface Plate {
+  hinge: THREE.Group;
+  inner: THREE.Group;
+  base: THREE.Vector3;
+  normal: THREE.Vector3;
+  /** Flip axis: the knit tile turns over on this axis to reveal the plate. */
+  axis: 'x' | 'y';
+  order: number;
+}
+
+let plateTexture: THREE.CanvasTexture | null = null;
+
+/** Left half: the cardigan's cable knit. Right half: plain white for the armor faces. */
+function getPlateTexture() {
+  if (plateTexture) return plateTexture;
+  const knit = getKnitTexture().image as HTMLCanvasElement;
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 128;
+  const g = c.getContext('2d')!;
+  g.drawImage(knit, 0, 0);
+  g.fillStyle = '#ffffff';
+  g.fillRect(128, 0, 128, 128);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.generateMipmaps = false;
+  t.minFilter = THREE.LinearFilter;
+  plateTexture = t;
+  return t;
+}
+
+function uvSolid(g: THREE.BufferGeometry) {
+  const uv = g.getAttribute('uv') as THREE.BufferAttribute | undefined;
+  if (uv) for (let i = 0; i < uv.count; i++) uv.setXY(i, 0.8, 0.5);
+  return g;
+}
+
+function uvKnit(g: THREE.BufferGeometry) {
+  const uv = g.getAttribute('uv') as THREE.BufferAttribute;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, 0.01 + uv.getX(i) * 0.47, uv.getY(i));
+  return g;
+}
+
+/** Chamfered low-poly slab. */
+const slab = (w: number, h: number, d: number) => new RoundedBoxGeometry(w, h, d, 1, Math.min(w, h, d) * 0.45);
+
+type Trim = [THREE.BufferGeometry, number, number, number, string, Rot?];
+
+/**
+ * A plate is a cardigan-coloured knit tile on one face and the armor plate on the
+ * other. Closed, the knit side faces out and sits on the cardigan; opening flips it.
+ */
+function buildPlate(
+  parent: THREE.Object3D,
+  mat: THREE.Material,
+  w: number,
+  h: number,
+  color: string,
+  trims: Trim[],
+  pos: [number, number, number],
+  rot: Rot,
+  axis: 'x' | 'y',
+  order: number,
+): Plate {
+  const hinge = new THREE.Group();
+  hinge.rotation.order = 'ZYX';
+  hinge.rotation.set(rot.rx ?? 0, rot.ry ?? 0, rot.rz ?? 0);
+  hinge.position.set(...pos);
+  const inner = new THREE.Group();
+  hinge.add(inner);
+  const b = new MeshBuilder(true);
+  b.add(uvSolid(slab(w, h, 0.045)), color);
+  for (const [g, x, y, z, c, r] of trims) b.add(uvSolid(g), c, { x, y, z, ...(r ?? {}) });
+  b.add(uvKnit(new THREE.PlaneGeometry(w * 0.96, h * 0.96)), COL.knit, { z: -0.024, ry: Math.PI });
+  const mesh = b.build(mat);
+  mesh.matrixAutoUpdate = true;
+  mesh.castShadow = true;
+  inner.add(mesh);
+  parent.add(hinge);
+  hinge.visible = false;
+  const normal = new THREE.Vector3(0, 0, 1).applyEuler(hinge.rotation);
+  return { hinge, inner, base: hinge.position.clone(), normal, axis, order };
+}
+
+const easeOutBack = (x: number) => {
+  const c = 1.9;
+  return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2);
+};
 
 export function createAvatar(): Avatar {
   const mats = {
@@ -240,6 +341,77 @@ export function createAvatar(): Avatar {
     arms.push(pivot);
   }
 
+  // ---- 「針織戰甲」 Knit Armor (hidden until AI Boost)
+  const armorMat = new THREE.MeshLambertMaterial({ vertexColors: true, map: getPlateTexture(), flatShading: true });
+  const A = ARMOR;
+  const plates: Plate[] = [];
+  const P = (...args: Parameters<typeof buildPlate>) => plates.push(buildPlate(...args));
+  for (const s of [1, -1]) {
+    const arm = arms[s === 1 ? 0 : 1];
+    const leg = legs[s === 1 ? 0 : 1];
+    P(torso, armorMat, 0.27, 0.3, A.navy, [
+      [slab(0.27, 0.035, 0.05), 0, -0.14, 0.004, A.gold],
+      [slab(0.035, 0.26, 0.05), -s * 0.12, 0.01, 0.004, A.teal],
+    ], [0.145 * s, 1.07, 0.22], { ry: 0.16 * s }, 'y', 0);
+    P(torso, armorMat, 0.2, 0.14, A.navyDeep, [[slab(0.2, 0.03, 0.05), 0, -0.058, 0.004, A.cream]], [0.112 * s, 0.84, 0.21], { ry: 0.1 * s }, 'x', 0.12);
+    P(arm, armorMat, 0.26, 0.24, A.teal, [[slab(0.26, 0.035, 0.05), 0, -0.105, 0.004, A.gold]], [0.035 * s, 0.07, 0], { rx: -Math.PI / 2, rz: -s * 0.55 }, 'x', 0.22);
+    P(arm, armorMat, 0.16, 0.18, A.tealDeep, [[slab(0.03, 0.18, 0.05), 0, 0, 0.004, A.cream]], [0.1 * s, -0.13, 0], { ry: (s * Math.PI) / 2 }, 'y', 0.3);
+    P(arm, armorMat, 0.19, 0.25, A.navy, [[slab(0.19, 0.035, 0.05), 0, 0.095, 0.004, A.gold]], [0.105 * s, -0.33, 0], { ry: (s * Math.PI) / 2 }, 'y', 0.4);
+    P(leg, armorMat, 0.19, 0.19, A.navy, [[slab(0.19, 0.03, 0.05), 0, -0.08, 0.004, A.cream]], [0, -0.13, 0.12], {}, 'x', 0.5);
+    P(leg, armorMat, 0.18, 0.22, A.teal, [[slab(0.18, 0.04, 0.05), 0, 0.095, 0.004, A.gold]], [0, -0.39, 0.122], {}, 'x', 0.62);
+  }
+  P(torso, armorMat, 0.46, 0.05, A.gold, [], [0, 0.655, 0.18], {}, 'x', 0.2);
+  P(torso, armorMat, 0.44, 0.5, A.navyDeep, [
+    [slab(0.03, 0.46, 0.05), 0.2, 0, 0.004, A.teal],
+    [slab(0.03, 0.46, 0.05), -0.2, 0, 0.004, A.teal],
+  ], [0, 1.0, -0.215], { ry: Math.PI }, 'y', 0.3);
+
+  // two compact thrusters that slide out of the back plate
+  const flameMat = new THREE.MeshBasicMaterial({ color: '#bff7ee', transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
+  const thrusters: { g: THREE.Group; flame: THREE.Mesh; s: number }[] = [];
+  for (const s of [1, -1]) {
+    const g = new THREE.Group();
+    g.rotation.set(0.28, 0, s * 0.12);
+    const b = new MeshBuilder(true);
+    b.add(uvSolid(new THREE.CylinderGeometry(0.052, 0.062, 0.24, 6)), A.teal);
+    b.add(uvSolid(new THREE.ConeGeometry(0.052, 0.07, 6)), A.navy, { y: 0.155 });
+    b.add(uvSolid(new THREE.CylinderGeometry(0.07, 0.05, 0.05, 6)), A.gold, { y: -0.14 });
+    const body2 = b.build(armorMat);
+    body2.matrixAutoUpdate = true;
+    g.add(body2);
+    const flame = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.34, 6, 1, true).rotateX(Math.PI).translate(0, -0.33, 0), flameMat);
+    g.add(flame);
+    g.visible = false;
+    torso.add(g);
+    thrusters.push({ g, flame, s });
+  }
+
+  const tmpN = new THREE.Vector3();
+  const smooth = (x: number) => x * x * (3 - 2 * x);
+  let armorShown = false;
+  const armor = (k: number, thrust: number, time: number) => {
+    const on = k > 0.001;
+    if (!on && !armorShown) return;
+    armorShown = on;
+    for (const p of plates) {
+      const local = THREE.MathUtils.clamp((k - p.order * 0.55) / 0.45, 0, 1);
+      p.hinge.visible = on;
+      p.inner.rotation[p.axis] = Math.PI * (1 - smooth(local));
+      p.inner.scale.setScalar(0.72 + 0.28 * easeOutBack(local));
+      tmpN.copy(p.normal).multiplyScalar(0.006 + 0.022 * Math.sin(local * Math.PI));
+      p.hinge.position.copy(p.base).add(tmpN);
+    }
+    const tk = THREE.MathUtils.clamp((k - 0.8) / 0.2, 0, 1);
+    for (const th of thrusters) {
+      th.g.visible = tk > 0;
+      th.g.scale.setScalar(Math.max(0.001, easeOutBack(tk)));
+      th.g.position.set(0.12 * th.s, 1.03, -0.21 - 0.075 * tk);
+      th.flame.visible = thrust > 0.02;
+      th.flame.scale.set(1, thrust * (0.8 + 0.25 * Math.sin(time * 47 + th.s * 2)), 1);
+    }
+    flameMat.opacity = 0.55 + 0.3 * thrust;
+  };
+
   let phase = 0;
   let walk = 0;
   let runK = 0;
@@ -293,7 +465,7 @@ export function createAvatar(): Avatar {
     cheerT = seconds;
   };
 
-  return { root, update, cheer };
+  return { root, update, cheer, armor };
 }
 
 /** Renders the avatar once to an offscreen canvas for HUD/title portraits. */
