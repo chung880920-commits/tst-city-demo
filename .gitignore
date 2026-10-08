@@ -33,3 +33,7 @@ shots/
 # promo: private end-card copy and brand assets, rendered videos
 promo/private/
 *.mp4
+
+# Promo music binaries stay off the public Pages repo (credit remains in MUSIC-LICENSE.md)
+promo/music/*
+!promo/music/.gitkeep
