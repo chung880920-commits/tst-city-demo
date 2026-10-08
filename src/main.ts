@@ -215,6 +215,8 @@ function boot() {
     /** 0..1 blend toward the close-up "reward" framing in front of the player. */
     push: 0,
     pushTarget: 0,
+    /** Temporary pitch dip used to see past overhead awnings; relaxes once the view is clear. */
+    pitchAdj: 0,
   };
 
   /** Camera sphere radius: comfortably covers the near-plane corners (near 0.1, fov 55). */
@@ -293,30 +295,34 @@ function boot() {
     const goal = tmpDir.set(player.pos.x, player.pos.y + 1.75 - closeK * 0.5, player.pos.z);
     cam.focus.lerp(goal, Math.min(1, dt * 14));
 
-    const pitch = THREE.MathUtils.lerp(cam.pitch, 0.16, closeK);
+    const pitch = THREE.MathUtils.clamp(THREE.MathUtils.lerp(cam.pitch, 0.16, closeK) + cam.pitchAdj, -0.3, 1.15);
     const dir = new THREE.Vector3(Math.sin(cam.yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(cam.yaw) * Math.cos(pitch));
     const desired = cam.dist * (camera.aspect < 1 ? 1.15 : 1) * (1 - 0.55 * cam.push);
     const clear = Math.max(0.5, camCast(cam.focus, dir, desired));
-    // Boxed in against a wall or under an awning: swing toward the nearest yaw with a clear view
-    // (preferring the side behind the player) instead of parking the lens against the avatar's head.
+    // Boxed in against a wall or under an awning: swing (and if needed dip) toward the nearest clear
+    // view, preferring the side behind the player, instead of parking the lens against the avatar's head.
     const want = Math.min(desired, 3.2);
+    const clearAt = (yaw: number, p: number) => {
+      probeDir.set(Math.sin(yaw) * Math.cos(p), Math.sin(p), Math.cos(yaw) * Math.cos(p));
+      return camCast(cam.focus, probeDir, want) >= want - 1e-3;
+    };
+    const rate = Math.min(1, dt * (boost.phase === 'idle' ? 4 : 8));
     if (clear < want) {
       const sgn = angleTo(cam.yaw, player.heading + Math.PI) < 0 ? -1 : 1;
-      const cp = Math.cos(pitch);
-      for (const m of [0.3, 0.6, 0.9, 1.3, 1.7, 2.2]) {
-        let found = 0;
-        for (const off of [m * sgn, -m * sgn]) {
-          probeDir.set(Math.sin(cam.yaw + off) * cp, dir.y, Math.cos(cam.yaw + off) * cp);
-          if (camCast(cam.focus, probeDir, want) >= want - 1e-3) {
-            found = off;
-            break;
+      search: for (const dp of [0, -0.35, -0.7, -1.05]) {
+        const p2 = Math.max(-0.3, pitch + dp);
+        for (const m of [0, 0.3, 0.6, 0.9, 1.3, 1.7, 2.2, 2.7, Math.PI]) {
+          for (const off of m ? [m * sgn, -m * sgn] : [0]) {
+            if ((dp || off) && clearAt(cam.yaw + off, p2)) {
+              cam.yaw += off * rate;
+              cam.pitchAdj += (p2 - pitch) * rate;
+              break search;
+            }
           }
         }
-        if (found) {
-          cam.yaw += found * Math.min(1, dt * 4);
-          break;
-        }
       }
+    } else if (cam.pitchAdj < -0.01 && clearAt(cam.yaw, pitch - cam.pitchAdj * 0.3)) {
+      cam.pitchAdj *= 1 - Math.min(1, dt * 1.5);
     }
     // Snap in immediately so no frame renders inside geometry; ease back out to avoid pumping.
     if (clear < cam.cur) cam.cur = clear;
@@ -329,6 +335,8 @@ function boot() {
       camera.position.copy(cam.focus).addScaledVector(dir, cam.cur);
     }
     camera.position.y = Math.max(camera.position.y, CAM_GROUND - 0.1);
+    // Closer than this the avatar's head would fill the lens; hide it until the camera backs off.
+    if (avatar.root.visible ? cam.cur < 0.8 : cam.cur > 1.0) avatar.root.visible = !avatar.root.visible;
     camera.lookAt(cam.focus);
   };
 
@@ -1006,6 +1014,7 @@ function boot() {
       cam.pitch = pitch;
       cam.dist = dist;
       cam.cur = dist;
+      cam.pitchAdj = 0;
       input.lastOrbitAt = clock.now() / 1000 + 9999;
     },
     titleCam: (x: number, y: number, z: number, lx: number, ly: number, lz: number) => {
