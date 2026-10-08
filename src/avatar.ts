@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { MeshBuilder } from './builder';
 
 const COL = {
@@ -164,12 +165,15 @@ export interface Avatar {
 }
 
 interface Plate {
-  hinge: THREE.Group;
-  inner: THREE.Group;
+  /** Plate-local vertex data, copied into the shared buffer with the plate's current transform. */
+  pos: Float32Array;
+  nrm: Float32Array;
+  start: number;
+  hinge: THREE.Quaternion;
   base: THREE.Vector3;
   normal: THREE.Vector3;
-  /** Flip axis: the knit tile turns over on this axis to reveal the plate. */
-  axis: 'x' | 'y';
+  /** The knit tile turns over on this local axis to reveal the plate. */
+  axis: THREE.Vector3;
   order: number;
 }
 
@@ -216,8 +220,6 @@ type Trim = [THREE.BufferGeometry, number, number, number, string, Rot?];
  * other. Closed, the knit side faces out and sits on the cardigan; opening flips it.
  */
 function buildPlate(
-  parent: THREE.Object3D,
-  mat: THREE.Material,
   w: number,
   h: number,
   color: string,
@@ -226,25 +228,86 @@ function buildPlate(
   rot: Rot,
   axis: 'x' | 'y',
   order: number,
-): Plate {
-  const hinge = new THREE.Group();
-  hinge.rotation.order = 'ZYX';
-  hinge.rotation.set(rot.rx ?? 0, rot.ry ?? 0, rot.rz ?? 0);
-  hinge.position.set(...pos);
-  const inner = new THREE.Group();
-  hinge.add(inner);
+): { plate: Plate; geo: THREE.BufferGeometry } {
   const b = new MeshBuilder(true);
   b.add(uvSolid(slab(w, h, 0.045)), color);
   for (const [g, x, y, z, c, r] of trims) b.add(uvSolid(g), c, { x, y, z, ...(r ?? {}) });
   b.add(uvKnit(new THREE.PlaneGeometry(w * 0.96, h * 0.96)), COL.knit, { z: -0.024, ry: Math.PI });
-  const mesh = b.build(mat);
-  mesh.matrixAutoUpdate = true;
-  mesh.castShadow = true;
-  inner.add(mesh);
-  parent.add(hinge);
-  hinge.visible = false;
-  const normal = new THREE.Vector3(0, 0, 1).applyEuler(hinge.rotation);
-  return { hinge, inner, base: hinge.position.clone(), normal, axis, order };
+  const geo = b.build(new THREE.MeshBasicMaterial()).geometry;
+  const e = new THREE.Euler(rot.rx ?? 0, rot.ry ?? 0, rot.rz ?? 0, 'ZYX');
+  const plate: Plate = {
+    pos: (geo.getAttribute('position').array as Float32Array).slice(),
+    nrm: (geo.getAttribute('normal').array as Float32Array).slice(),
+    start: 0,
+    hinge: new THREE.Quaternion().setFromEuler(e),
+    base: new THREE.Vector3(...pos),
+    normal: new THREE.Vector3(0, 0, 1).applyEuler(e),
+    axis: axis === 'x' ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0),
+    order,
+  };
+  return { plate, geo };
+}
+
+const _m = new THREE.Matrix4();
+const _q = new THREE.Quaternion();
+const _flip = new THREE.Quaternion();
+const _p = new THREE.Vector3();
+const _s = new THREE.Vector3();
+const _v = new THREE.Vector3();
+
+/**
+ * All plates on one body part share a single mesh (one draw call). Their vertices are
+ * rewritten on the CPU only while the plates are flipping.
+ */
+class PlateSet {
+  readonly mesh: THREE.Mesh;
+  private plates: Plate[] = [];
+  private lastK = -1;
+
+  constructor(parts: { plate: Plate; geo: THREE.BufferGeometry }[], mat: THREE.Material) {
+    let start = 0;
+    for (const p of parts) {
+      p.plate.start = start;
+      start += p.geo.getAttribute('position').count;
+      this.plates.push(p.plate);
+    }
+    const merged = mergeGeometries(parts.map((p) => p.geo), false)!;
+    for (const p of parts) p.geo.dispose();
+    (merged.getAttribute('position') as THREE.BufferAttribute).setUsage(THREE.DynamicDrawUsage);
+    (merged.getAttribute('normal') as THREE.BufferAttribute).setUsage(THREE.DynamicDrawUsage);
+    merged.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.6, 0), 1.6);
+    this.mesh = new THREE.Mesh(merged, mat);
+    this.mesh.castShadow = true;
+    this.mesh.frustumCulled = false;
+    this.mesh.visible = false;
+  }
+
+  update(k: number) {
+    this.mesh.visible = k > 0.001;
+    if (!this.mesh.visible || Math.abs(k - this.lastK) < 1e-4) return;
+    this.lastK = k;
+    const posAttr = this.mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const nrmAttr = this.mesh.geometry.getAttribute('normal') as THREE.BufferAttribute;
+    const P = posAttr.array as Float32Array;
+    const N = nrmAttr.array as Float32Array;
+    for (const pl of this.plates) {
+      const local = THREE.MathUtils.clamp((k - pl.order * 0.55) / 0.45, 0, 1);
+      const sm = local * local * (3 - 2 * local);
+      _flip.setFromAxisAngle(pl.axis, Math.PI * (1 - sm));
+      _q.copy(pl.hinge).multiply(_flip);
+      _p.copy(pl.normal).multiplyScalar(0.006 + 0.022 * Math.sin(local * Math.PI)).add(pl.base);
+      _s.setScalar(0.72 + 0.28 * easeOutBack(local));
+      _m.compose(_p, _q, _s);
+      const n = pl.pos.length / 3;
+      for (let i = 0; i < n; i++) {
+        const o = (pl.start + i) * 3;
+        _v.fromArray(pl.pos, i * 3).applyMatrix4(_m).toArray(P, o);
+        _v.fromArray(pl.nrm, i * 3).applyQuaternion(_q).toArray(N, o);
+      }
+    }
+    posAttr.needsUpdate = true;
+    nrmAttr.needsUpdate = true;
+  }
 }
 
 const easeOutBack = (x: number) => {
@@ -344,71 +407,71 @@ export function createAvatar(): Avatar {
   // ---- 「針織戰甲」 Knit Armor (hidden until AI Boost)
   const armorMat = new THREE.MeshLambertMaterial({ vertexColors: true, map: getPlateTexture(), flatShading: true });
   const A = ARMOR;
-  const plates: Plate[] = [];
-  const P = (...args: Parameters<typeof buildPlate>) => plates.push(buildPlate(...args));
+  type PlatePart = ReturnType<typeof buildPlate>;
+  const groups = new Map<THREE.Object3D, PlatePart[]>();
+  const P = (parent: THREE.Object3D, ...args: Parameters<typeof buildPlate>) => {
+    if (!groups.has(parent)) groups.set(parent, []);
+    groups.get(parent)!.push(buildPlate(...args));
+  };
   for (const s of [1, -1]) {
     const arm = arms[s === 1 ? 0 : 1];
     const leg = legs[s === 1 ? 0 : 1];
-    P(torso, armorMat, 0.27, 0.3, A.navy, [
+    P(torso, 0.27, 0.3, A.navy, [
       [slab(0.27, 0.035, 0.05), 0, -0.14, 0.004, A.gold],
       [slab(0.035, 0.26, 0.05), -s * 0.12, 0.01, 0.004, A.teal],
     ], [0.145 * s, 1.07, 0.22], { ry: 0.16 * s }, 'y', 0);
-    P(torso, armorMat, 0.2, 0.14, A.navyDeep, [[slab(0.2, 0.03, 0.05), 0, -0.058, 0.004, A.cream]], [0.112 * s, 0.84, 0.21], { ry: 0.1 * s }, 'x', 0.12);
-    P(arm, armorMat, 0.26, 0.24, A.teal, [[slab(0.26, 0.035, 0.05), 0, -0.105, 0.004, A.gold]], [0.035 * s, 0.07, 0], { rx: -Math.PI / 2, rz: -s * 0.55 }, 'x', 0.22);
-    P(arm, armorMat, 0.16, 0.18, A.tealDeep, [[slab(0.03, 0.18, 0.05), 0, 0, 0.004, A.cream]], [0.1 * s, -0.13, 0], { ry: (s * Math.PI) / 2 }, 'y', 0.3);
-    P(arm, armorMat, 0.19, 0.25, A.navy, [[slab(0.19, 0.035, 0.05), 0, 0.095, 0.004, A.gold]], [0.105 * s, -0.33, 0], { ry: (s * Math.PI) / 2 }, 'y', 0.4);
-    P(leg, armorMat, 0.19, 0.19, A.navy, [[slab(0.19, 0.03, 0.05), 0, -0.08, 0.004, A.cream]], [0, -0.13, 0.12], {}, 'x', 0.5);
-    P(leg, armorMat, 0.18, 0.22, A.teal, [[slab(0.18, 0.04, 0.05), 0, 0.095, 0.004, A.gold]], [0, -0.39, 0.122], {}, 'x', 0.62);
+    P(torso, 0.2, 0.14, A.navyDeep, [[slab(0.2, 0.03, 0.05), 0, -0.058, 0.004, A.cream]], [0.112 * s, 0.84, 0.21], { ry: 0.1 * s }, 'x', 0.12);
+    P(arm, 0.26, 0.24, A.teal, [[slab(0.26, 0.035, 0.05), 0, -0.105, 0.004, A.gold]], [0.035 * s, 0.07, 0], { rx: -Math.PI / 2, rz: -s * 0.55 }, 'x', 0.22);
+    P(arm, 0.16, 0.18, A.tealDeep, [[slab(0.03, 0.18, 0.05), 0, 0, 0.004, A.cream]], [0.1 * s, -0.13, 0], { ry: (s * Math.PI) / 2 }, 'y', 0.3);
+    P(arm, 0.19, 0.25, A.navy, [[slab(0.19, 0.035, 0.05), 0, 0.095, 0.004, A.gold]], [0.105 * s, -0.33, 0], { ry: (s * Math.PI) / 2 }, 'y', 0.4);
+    P(leg, 0.19, 0.19, A.navy, [[slab(0.19, 0.03, 0.05), 0, -0.08, 0.004, A.cream]], [0, -0.13, 0.12], {}, 'x', 0.5);
+    P(leg, 0.18, 0.22, A.teal, [[slab(0.18, 0.04, 0.05), 0, 0.095, 0.004, A.gold]], [0, -0.39, 0.122], {}, 'x', 0.62);
   }
-  P(torso, armorMat, 0.46, 0.05, A.gold, [], [0, 0.655, 0.18], {}, 'x', 0.2);
-  P(torso, armorMat, 0.44, 0.5, A.navyDeep, [
+  P(torso, 0.46, 0.05, A.gold, [], [0, 0.655, 0.18], {}, 'x', 0.2);
+  P(torso, 0.44, 0.5, A.navyDeep, [
     [slab(0.03, 0.46, 0.05), 0.2, 0, 0.004, A.teal],
     [slab(0.03, 0.46, 0.05), -0.2, 0, 0.004, A.teal],
   ], [0, 1.0, -0.215], { ry: Math.PI }, 'y', 0.3);
-
-  // two compact thrusters that slide out of the back plate
-  const flameMat = new THREE.MeshBasicMaterial({ color: '#bff7ee', transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
-  const thrusters: { g: THREE.Group; flame: THREE.Mesh; s: number }[] = [];
-  for (const s of [1, -1]) {
-    const g = new THREE.Group();
-    g.rotation.set(0.28, 0, s * 0.12);
-    const b = new MeshBuilder(true);
-    b.add(uvSolid(new THREE.CylinderGeometry(0.052, 0.062, 0.24, 6)), A.teal);
-    b.add(uvSolid(new THREE.ConeGeometry(0.052, 0.07, 6)), A.navy, { y: 0.155 });
-    b.add(uvSolid(new THREE.CylinderGeometry(0.07, 0.05, 0.05, 6)), A.gold, { y: -0.14 });
-    const body2 = b.build(armorMat);
-    body2.matrixAutoUpdate = true;
-    g.add(body2);
-    const flame = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.34, 6, 1, true).rotateX(Math.PI).translate(0, -0.33, 0), flameMat);
-    g.add(flame);
-    g.visible = false;
-    torso.add(g);
-    thrusters.push({ g, flame, s });
+  const plateSets: PlateSet[] = [];
+  for (const [parent, parts] of groups) {
+    const set = new PlateSet(parts, armorMat);
+    parent.add(set.mesh);
+    plateSets.push(set);
   }
 
-  const tmpN = new THREE.Vector3();
-  const smooth = (x: number) => x * x * (3 - 2 * x);
+  // two compact thrusters that slide out of the back plate (one mesh + one flame mesh)
+  const flameMat = new THREE.MeshBasicMaterial({ color: '#bff7ee', transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
+  const thruster = new THREE.Group();
+  const tb = new MeshBuilder(true);
+  const fb = new MeshBuilder();
+  for (const s of [1, -1]) {
+    const tilt = new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(0.28, 0, s * 0.12)).setPosition(0.12 * s, 0, 0);
+    const part = (g: THREE.BufferGeometry, y: number) => uvSolid(g).translate(0, y, 0).applyMatrix4(tilt);
+    tb.add(part(new THREE.CylinderGeometry(0.052, 0.062, 0.24, 6), 0), A.teal);
+    tb.add(part(new THREE.ConeGeometry(0.052, 0.07, 6), 0.155), A.navy);
+    tb.add(part(new THREE.CylinderGeometry(0.07, 0.05, 0.05, 6), -0.14), A.gold);
+    fb.add(new THREE.ConeGeometry(0.045, 0.34, 6, 1, true).rotateX(Math.PI).translate(0, -0.17, 0).applyMatrix4(new THREE.Matrix4().makeTranslation(0, -0.16, 0).premultiply(tilt)), '#ffffff');
+  }
+  const thrusterBody = tb.build(armorMat);
+  thrusterBody.castShadow = true;
+  const flames = fb.build(flameMat);
+  flames.matrixAutoUpdate = true;
+  thruster.add(thrusterBody, flames);
+  thruster.visible = false;
+  torso.add(thruster);
+
   let armorShown = false;
   const armor = (k: number, thrust: number, time: number) => {
     const on = k > 0.001;
     if (!on && !armorShown) return;
     armorShown = on;
-    for (const p of plates) {
-      const local = THREE.MathUtils.clamp((k - p.order * 0.55) / 0.45, 0, 1);
-      p.hinge.visible = on;
-      p.inner.rotation[p.axis] = Math.PI * (1 - smooth(local));
-      p.inner.scale.setScalar(0.72 + 0.28 * easeOutBack(local));
-      tmpN.copy(p.normal).multiplyScalar(0.006 + 0.022 * Math.sin(local * Math.PI));
-      p.hinge.position.copy(p.base).add(tmpN);
-    }
+    for (const set of plateSets) set.update(k);
     const tk = THREE.MathUtils.clamp((k - 0.8) / 0.2, 0, 1);
-    for (const th of thrusters) {
-      th.g.visible = tk > 0;
-      th.g.scale.setScalar(Math.max(0.001, easeOutBack(tk)));
-      th.g.position.set(0.12 * th.s, 1.03, -0.21 - 0.075 * tk);
-      th.flame.visible = thrust > 0.02;
-      th.flame.scale.set(1, thrust * (0.8 + 0.25 * Math.sin(time * 47 + th.s * 2)), 1);
-    }
+    thruster.visible = tk > 0;
+    thruster.scale.setScalar(Math.max(0.001, easeOutBack(tk)));
+    thruster.position.set(0, 1.03, -0.21 - 0.075 * tk);
+    flames.visible = thrust > 0.02;
+    flames.scale.set(1, Math.max(0.01, thrust * (0.8 + 0.25 * Math.sin(time * 47))), 1);
     flameMat.opacity = 0.55 + 0.3 * thrust;
   };
 

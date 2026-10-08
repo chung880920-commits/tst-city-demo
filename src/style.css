@@ -177,7 +177,7 @@ h1 span {
 
 .objective {
   position: absolute;
-  top: calc(112px + env(safe-area-inset-top));
+  top: calc(134px + env(safe-area-inset-top));
   left: calc(12px + env(safe-area-inset-left));
   background: var(--navy-glass);
   border-left: 6px solid var(--gold);
@@ -256,7 +256,10 @@ h1 span {
   position: absolute;
   left: 0;
   top: 0;
-  transform: translate(-50%, -100%);
+  --x: 50vw;
+  --y: 40vh;
+  transform: translate3d(var(--x), var(--y), 0) translate(-50%, -100%);
+  will-change: transform;
   max-width: min(78vw, 420px);
   background: #fff;
   color: var(--navy);
@@ -280,7 +283,7 @@ h1 span {
   border-top-color: var(--gold);
   border-bottom: 0;
 }
-@keyframes bubble-in { from { transform: translate(-50%, -80%) scale(0.6); opacity: 0; } }
+@keyframes bubble-in { from { transform: translate3d(var(--x), var(--y), 0) translate(-50%, -80%) scale(0.6); opacity: 0; } }
 
 .objective.pulse { animation: pulse 1s ease-in-out infinite; }
 @keyframes pulse {
@@ -518,7 +521,7 @@ body.touch .boost-btn { right: calc(20px + env(safe-area-inset-right)); bottom: 
   .btn-icon svg { width: 32px; height: 32px; }
   #hud-portrait { width: 60px; height: 60px; }
   .hud-player { padding: 6px 14px 6px 6px; }
-  .objective { top: calc(94px + env(safe-area-inset-top)); font-size: 1.3rem; max-width: calc(100vw - 170px); padding: 8px 14px; }
+  .objective { top: calc(124px + env(safe-area-inset-top)); font-size: 1.3rem; max-width: calc(100vw - 170px); padding: 8px 14px; }
   .objective small { font-size: 1rem; }
   .objective .obj-dist { font-size: 1.15rem; }
   .howto { font-size: 1.2rem; }

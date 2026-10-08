@@ -650,6 +650,7 @@ function boot() {
   let sayText = '';
   let sayUntil = 0;
   const headPos = new THREE.Vector3();
+  const bubbleAt = { x: -1, y: -1 };
   const IDLE_SECONDS = 15;
   const say = (text: string, seconds: number) => {
     sayText = text;
@@ -668,8 +669,14 @@ function boot() {
     hintShown = hint;
     if (show) {
       headPos.set(player.pos.x, player.pos.y + 2.45, player.pos.z).project(camera);
-      bubble.style.left = `${((headPos.x + 1) / 2) * window.innerWidth}px`;
-      bubble.style.top = `${((1 - headPos.y) / 2) * window.innerHeight}px`;
+      const bx = Math.round(((headPos.x + 1) / 2) * window.innerWidth);
+      const by = Math.round(((1 - headPos.y) / 2) * window.innerHeight);
+      if (bx !== bubbleAt.x || by !== bubbleAt.y) {
+        bubbleAt.x = bx;
+        bubbleAt.y = by;
+        bubble.style.setProperty('--x', `${bx}px`);
+        bubble.style.setProperty('--y', `${by}px`);
+      }
     }
   };
 
@@ -963,6 +970,7 @@ function boot() {
       syncEnergy();
     },
     boost: () => triggerBoost(),
+    colliders: () => colliders.slice(0, world.staticCount).filter((c) => c.h > 3),
     info: () => ({
       fps,
       boost: { phase: boost.phase, t: boost.t, k: boost.k, energy: boost.energy, thrust: boost.thrust },
