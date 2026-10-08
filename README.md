@@ -86,9 +86,15 @@ Pages project site, an S3 bucket, a USB stick served by any static server.
 
 ## Deploy
 
-**GitHub Pages (included workflow).** Push to `main` on GitHub, then in the repo go to
-*Settings → Pages → Build and deployment → Source: GitHub Actions*. The workflow in
-`.github/workflows/deploy.yml` builds and publishes `dist/`.
+**GitHub Pages (included workflow).** Live at
+<https://chung880920-commits.github.io/tst-city-demo/>. Every push to `main` on GitHub runs
+`.github/workflows/deploy.yml` (`configure-pages` → `npm run build` → `upload-pages-artifact`
+→ `deploy-pages`). The repo's *Settings → Pages → Source* must be **GitHub Actions**.
+
+The workflow builds with `BASE_PATH=/tst-city-demo/`, so asset URLs are absolute under that
+sub-path. Without `BASE_PATH` (local dev, `npm run preview`, tunnels, other static hosts)
+the build uses relative paths. To build the Pages variant locally:
+`BASE_PATH=/tst-city-demo/ npm run build`.
 
 **Any static host.** Upload the contents of `dist/` (Netlify drop, Cloudflare Pages,
 Vercel static, S3 + CloudFront, nginx …). No server code or environment variables are needed.
