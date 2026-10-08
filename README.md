@@ -8,8 +8,8 @@ find three glowing treasure points, and get a completion card at the end.
   harbour promenade with animated water, Salisbury Road, a Canton Road–style street,
   a Nathan Road–style neon street, a small lane, a dome and a sloped-roof hall, and
   a hazy Hong Kong Island skyline across the harbour. Traffic (taxis and a bus) drives along Salisbury Road.
-- **Feel:** chase camera with smooth follow, auto-recentres behind you, and pulls
-  in when a building gets between it and the player. Warm late-afternoon light,
+- **Feel:** chase camera with smooth follow, auto-recentres behind you, and never
+  clips into buildings, awnings, signs or tree crowns (see Collision below). Warm late-afternoon light,
   shadows, a rotating circular minimap with landmark markers, walk / run / jump.
 - **Player:** a rounded, stylised low-poly avatar of the founder (~7k triangles), built in
   code from spheres, capsules and bevelled boxes: softer jaw, slicked-back hair swoop
@@ -144,7 +144,18 @@ src/
 
 The player is a circle (r = 0.42 m) tested against axis-aligned boxes in the ground
 plane, with box heights so low things (benches, planters) can be jumped onto. The
-camera ray-casts the same boxes and pulls in when a wall is between it and the player.
+camera sphere-casts (r = 0.3 m) from the avatar's head against those boxes plus a
+second list of camera-only 3D boxes (`camBlockers`: shop awnings, blade signs, palm and
+street-tree crowns, the pier canopy) and the ground. It snaps in front of the first hit
+on the same frame and eases back out slowly, a near-plane check pulls it further in if a
+moving bus reaches it, and when it is boxed in against a wall it swings toward the
+nearest clear angle instead of sitting against the avatar's head. This applies to normal
+play, AI Boost and the unlock close-up.
+
+On touch devices the canvas, joystick, HUD and buttons use `touch-action: none`,
+`user-select: none` and `-webkit-touch-callout: none`, and `contextmenu`, `selectstart`,
+`dragstart` and iOS `gesture*` events are cancelled, so a long press never opens the
+browser's "save image" menu, selects text or zooms, and a held joystick drag is not cut.
 No physics engine is needed for this scope, which keeps the bundle small.
 
 ### Adding real questions

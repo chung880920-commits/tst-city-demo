@@ -12,6 +12,16 @@ export interface AABB {
   h: number;
 }
 
+/** Overhead geometry (awnings, signs, tree crowns, canopies) that blocks the camera but not the player. */
+export interface Box3 {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  minZ: number;
+  maxZ: number;
+}
+
 export type MapKind = 'land' | 'road' | 'walk' | 'plaza' | 'building' | 'pier' | 'green' | 'landmark' | 'boat';
 export interface MapShape {
   kind: MapKind;
@@ -108,6 +118,9 @@ const SHOP_SIGNS: Array<[string, string]> = [
 export interface World {
   group: THREE.Group;
   colliders: AABB[];
+  camBlockers: Box3[];
+  /** Shopfront centres at the facade with their outward normal (used by automated camera checks). */
+  shops: { name: string; x: number; z: number; nx: number; nz: number; len: number }[];
   map: MapShape[];
   /** Number of colliders that never move (traffic colliders follow them). */
   staticCount: number;
@@ -120,6 +133,8 @@ export function buildWorld(): World {
   const rng = mulberry32(852);
   const group = new THREE.Group();
   const colliders: AABB[] = [];
+  const camBlockers: Box3[] = [];
+  const shops: World['shops'] = [];
   const map: MapShape[] = [];
 
   const ground = new MeshBuilder();
@@ -132,6 +147,8 @@ export function buildWorld(): World {
 
   const collide = (minX: number, minZ: number, maxX: number, maxZ: number, h: number) =>
     colliders.push({ minX, maxX, minZ, maxZ, h });
+  const camBlock = (ax: number, ay: number, az: number, bx: number, by: number, bz: number) =>
+    camBlockers.push({ minX: Math.min(ax, bx), maxX: Math.max(ax, bx), minY: Math.min(ay, by), maxY: Math.max(ay, by), minZ: Math.min(az, bz), maxZ: Math.max(az, bz) });
   const mapRect = (kind: MapKind, x0: number, z0: number, x1: number, z1: number, round = false) =>
     map.push({ kind, x0, z0, x1, z1, round });
   const flat = (x0: number, z0: number, x1: number, z1: number, y: number, color: string, thick = 0.1) =>
@@ -252,8 +269,14 @@ export function buildWorld(): World {
       rx: along ? -out * 0.18 : 0,
       rz: along ? 0 : out * 0.18,
     });
+    {
+      const a0 = at(0, -sw / 2);
+      const a1 = at(1.45, sw / 2);
+      camBlock(a0.x, 3.1, a0.z, a1.x, 3.6, a1.z);
+    }
     // flat shop sign above the awning
     const [t, sub] = SHOP_SIGNS[signIdx++ % SHOP_SIGNS.length];
+    shops.push({ name: t, ...at(0, 0), nx: along ? 0 : out, nz: along ? out : 0, len });
     const sp = at(0.1, 0);
     signs.add({ text: t, sub, neon: NEON[signIdx % NEON.length] }, Math.min(len - 1.5, 7), sp.x, 4.45, sp.z, ry);
 
@@ -268,6 +291,9 @@ export function buildWorld(): World {
         const neon = NEON[Math.floor(rng() * NEON.length)];
         const res = signs.add({ text, vertical: true, neon }, 4.6, bp.x, sy, bp.z, ry + Math.PI / 2);
         if (res) {
+          const b0 = at(0.5, a - 0.15);
+          const b1 = at(1.25 + res.w / 2, a + 0.15);
+          camBlock(b0.x, sy - res.h / 2, b0.z, b1.x, sy + res.h / 2, b1.z);
           const bracket = at(0.6, a);
           solid.box(along ? 0.12 : 1.2, 0.12, along ? 1.2 : 0.12, bracket.x, sy + res.h / 2 - 0.2, bracket.z, '#2b2b33');
         }
@@ -432,6 +458,7 @@ export function buildWorld(): World {
         rz: -Math.cos(a) * 1.9,
       });
     }
+    camBlock(top.x - 2.5 * s, top.y - 1.9 * s, top.z - 2.5 * s, top.x + 2.5 * s, top.y + 0.7 * s, top.z + 2.5 * s);
     solid.add(new THREE.CylinderGeometry(1.1 * s, 1.2 * s, 0.6, 6), '#a58e76', { x, y: 0.3, z });
     collide(x - 0.9 * s, z - 0.9 * s, x + 0.9 * s, z + 0.9 * s, 0.6);
     mapRect('green', x - 1.4, z - 1.4, x + 1.4, z + 1.4, true);
@@ -452,6 +479,7 @@ export function buildWorld(): World {
     solid.add(new THREE.CylinderGeometry(0.12, 0.18, 2.4, 5), C.trunk, { x, y: 1.2, z: 6.6 });
     solid.add(new THREE.IcosahedronGeometry(1.4, 0), C.leaf2, { x, y: 3.2, z: 6.6 });
     collide(x - 0.25, 6.35, x + 0.25, 6.85, 2.4);
+    camBlock(x - 1.35, 1.9, 5.25, x + 1.35, 4.6, 7.95);
   }
 
   // --------------------------------------------------------- clock tower
@@ -459,7 +487,7 @@ export function buildWorld(): World {
   mapRect('landmark', CLOCK_TOWER.x - 2.6, CLOCK_TOWER.z - 2.6, CLOCK_TOWER.x + 2.6, CLOCK_TOWER.z + 2.6);
 
   // --------------------------------------------------------- pier + ferry
-  buildPier(solid, glow, signs, collide, mapRect);
+  buildPier(solid, glow, signs, collide, camBlock, mapRect);
 
   // ------------------------------------------------------ distant skyline
   buildSkyline(far, farWin, rng);
@@ -492,6 +520,8 @@ export function buildWorld(): World {
   return {
     group,
     colliders,
+    camBlockers,
+    shops,
     map,
     staticCount,
     nightMats: { windows: windowsMat, skyline: skylineMat, skylineWin: skylineWinMat, signs: signMesh.material as THREE.MeshBasicMaterial, glow: glowMat },
@@ -571,6 +601,7 @@ function buildPier(
   glow: MeshBuilder,
   signs: SignAtlas,
   collide: (a: number, b: number, c: number, d: number, h: number) => void,
+  camBlock: (ax: number, ay: number, az: number, bx: number, by: number, bz: number) => void,
   mapRect: (k: MapKind, a: number, b: number, c: number, d: number, round?: boolean) => void,
 ) {
   const { x0, x1, z0, z1 } = PIER;
@@ -607,6 +638,7 @@ function buildPier(
   // entrance hall and canopy
   glow.box(5, 2.8, 0.1, (bx0 + bx1) / 2, 1.6, bz0 - 0.06, '#ffe0a0');
   solid.box(7, 0.25, 3.2, (bx0 + bx1) / 2, 3.2, bz0 - 1.6, C.green);
+  camBlock((bx0 + bx1) / 2 - 3.5, 3.05, bz0 - 3.2, (bx0 + bx1) / 2 + 3.5, 3.35, bz0);
   solid.box(0.25, 3.1, 0.25, (bx0 + bx1) / 2 - 3.3, 1.6, bz0 - 3, C.greenDark);
   solid.box(0.25, 3.1, 0.25, (bx0 + bx1) / 2 + 3.3, 1.6, bz0 - 3, C.greenDark);
   collide((bx0 + bx1) / 2 - 3.45, bz0 - 3.15, (bx0 + bx1) / 2 - 3.15, bz0 - 2.85, 3.1);

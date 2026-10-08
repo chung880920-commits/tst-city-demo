@@ -6,7 +6,7 @@ import { createLights, createSky, createTimeOfDay, createWater, FOG_COLOR, SUN_D
 import { Burst, FootTrail, GuideLine, Navigator } from './guide';
 import { Input } from './input';
 import { Minimap } from './minimap';
-import { BOUNDS, buildWorld, CHECKPOINTS, CLOCK_TOWER, ZONES, type AABB } from './world';
+import { BOUNDS, buildWorld, CHECKPOINTS, CLOCK_TOWER, ZONES } from './world';
 
 type Quality = 'ultra' | 'low' | 'high';
 const QUALITY_LABEL: Record<Quality, string> = { ultra: '省電', low: '流暢', high: '高畫質' };
@@ -217,13 +217,26 @@ function boot() {
     pushTarget: 0,
   };
 
-  const rayBox = (o: THREE.Vector3, d: THREE.Vector3, b: AABB, maxT: number) => {
+  /** Camera sphere radius: comfortably covers the near-plane corners (near 0.1, fov 55). */
+  const CAM_R = 0.3;
+  const CAM_GROUND = 0.35;
+  const camBlockers = world.camBlockers;
+  /** Slab test against a box grown by `r`; Infinity on miss, or when the origin starts inside. */
+  const rayBox3 = (
+    o: THREE.Vector3,
+    d: THREE.Vector3,
+    minX: number, minY: number, minZ: number,
+    maxX: number, maxY: number, maxZ: number,
+    r: number,
+    maxT: number,
+  ) => {
+    const mins = [minX - r, minY - r, minZ - r];
+    const maxs = [maxX + r, maxY + r, maxZ + r];
+    const os = [o.x, o.y, o.z];
+    if (os[0] > mins[0] && os[0] < maxs[0] && os[1] > mins[1] && os[1] < maxs[1] && os[2] > mins[2] && os[2] < maxs[2]) return Infinity;
+    const ds = [d.x, d.y, d.z];
     let tmin = 0;
     let tmax = maxT;
-    const mins = [b.minX, -1, b.minZ];
-    const maxs = [b.maxX, b.h, b.maxZ];
-    const os = [o.x, o.y, o.z];
-    const ds = [d.x, d.y, d.z];
     for (let i = 0; i < 3; i++) {
       if (Math.abs(ds[i]) < 1e-6) {
         if (os[i] < mins[i] || os[i] > maxs[i]) return Infinity;
@@ -238,9 +251,29 @@ function boot() {
     }
     return tmin;
   };
+  /** Sphere-cast from `o` along unit `d`: distance the camera can travel before touching anything. */
+  const camCast = (o: THREE.Vector3, d: THREE.Vector3, maxT: number) => {
+    let hit = maxT;
+    for (const c of colliders) hit = Math.min(hit, rayBox3(o, d, c.minX, -1, c.minZ, c.maxX, c.h, c.maxZ, CAM_R, hit));
+    for (const b of camBlockers) hit = Math.min(hit, rayBox3(o, d, b.minX, b.minY, b.minZ, b.maxX, b.maxY, b.maxZ, CAM_R, hit));
+    if (d.y < -1e-6) hit = Math.min(hit, Math.max(0, (CAM_GROUND - o.y) / d.y));
+    return hit;
+  };
+  /** Whether a point is within `r` of any solid surface (or the ground). */
+  const camInside = (p: THREE.Vector3, r: number) => {
+    if (p.y < CAM_GROUND - 0.2) return true;
+    for (const c of colliders) {
+      if (p.x > c.minX - r && p.x < c.maxX + r && p.z > c.minZ - r && p.z < c.maxZ + r && p.y < c.h + r) return true;
+    }
+    for (const b of camBlockers) {
+      if (p.x > b.minX - r && p.x < b.maxX + r && p.y > b.minY - r && p.y < b.maxY + r && p.z > b.minZ - r && p.z < b.maxZ + r) return true;
+    }
+    return false;
+  };
 
   const angleTo = (from: number, to: number) => Math.atan2(Math.sin(to - from), Math.cos(to - from));
   const tmpDir = new THREE.Vector3();
+  const probeDir = new THREE.Vector3();
   const updateCamera = (dt: number, moving: number) => {
     const orbit = input.consumeOrbit();
     const sens = input.isTouch ? 0.009 : 0.006;
@@ -263,15 +296,39 @@ function boot() {
     const pitch = THREE.MathUtils.lerp(cam.pitch, 0.16, closeK);
     const dir = new THREE.Vector3(Math.sin(cam.yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(cam.yaw) * Math.cos(pitch));
     const desired = cam.dist * (camera.aspect < 1 ? 1.15 : 1) * (1 - 0.55 * cam.push);
-    let hit = desired;
-    for (const c of colliders) {
-      const t = rayBox(cam.focus, dir, c, desired + 0.5);
-      if (t < hit + 0.4) hit = Math.min(hit, t - 0.4);
+    const clear = Math.max(0.5, camCast(cam.focus, dir, desired));
+    // Boxed in against a wall or under an awning: swing toward the nearest yaw with a clear view
+    // (preferring the side behind the player) instead of parking the lens against the avatar's head.
+    const want = Math.min(desired, 3.2);
+    if (clear < want) {
+      const sgn = angleTo(cam.yaw, player.heading + Math.PI) < 0 ? -1 : 1;
+      const cp = Math.cos(pitch);
+      for (const m of [0.3, 0.6, 0.9, 1.3, 1.7, 2.2]) {
+        let found = 0;
+        for (const off of [m * sgn, -m * sgn]) {
+          probeDir.set(Math.sin(cam.yaw + off) * cp, dir.y, Math.cos(cam.yaw + off) * cp);
+          if (camCast(cam.focus, probeDir, want) >= want - 1e-3) {
+            found = off;
+            break;
+          }
+        }
+        if (found) {
+          cam.yaw += found * Math.min(1, dt * 4);
+          break;
+        }
+      }
     }
-    hit = Math.max(1.2, hit);
-    cam.cur += (hit - cam.cur) * Math.min(1, dt * (hit < cam.cur ? 18 : 3));
+    // Snap in immediately so no frame renders inside geometry; ease back out to avoid pumping.
+    if (clear < cam.cur) cam.cur = clear;
+    else cam.cur += (clear - cam.cur) * Math.min(1, dt * 3);
     camera.position.copy(cam.focus).addScaledVector(dir, cam.cur);
-    camera.position.y = Math.max(camera.position.y, 0.5);
+    // Near-plane safety for anything the cast could not see (origin inside an awning mid-jump,
+    // a bus moving into the camera between frames).
+    for (let i = 0; i < 12 && cam.cur > 0.35 && camInside(camera.position, 0.12); i++) {
+      cam.cur = Math.max(0.35, cam.cur - 0.3);
+      camera.position.copy(cam.focus).addScaledVector(dir, cam.cur);
+    }
+    camera.position.y = Math.max(camera.position.y, CAM_GROUND - 0.1);
     camera.lookAt(cam.focus);
   };
 
@@ -618,6 +675,7 @@ function boot() {
     sound.unlock();
     $('title-screen').hidden = true;
     $('hud').hidden = false;
+    document.body.classList.add('playing');
     state = 'play';
     input.enabled = true;
     cam.yaw = player.heading + Math.PI;
@@ -675,7 +733,6 @@ function boot() {
       const by = Math.round(((1 - headPos.y) / 2) * window.innerHeight);
       if (bx !== bubbleAt.x || by !== bubbleAt.y) {
         bubbleAt.x = bx;
-    document.body.classList.add('playing');
         bubbleAt.y = by;
         bubble.style.setProperty('--x', `${bx}px`);
         bubble.style.setProperty('--y', `${by}px`);
@@ -938,6 +995,7 @@ function boot() {
   requestAnimationFrame(frame);
 
   // Hooks for automated screenshots and debugging.
+  let auditRT: THREE.WebGLRenderTarget | undefined;
   (window as unknown as { __tst: unknown }).__tst = {
     start,
     portraits: () => renderPortraits(true),
@@ -985,6 +1043,31 @@ function boot() {
       frame(clock.t);
     },
     colliders: () => colliders.slice(0, world.staticCount).filter((c) => c.h > 3),
+    shops: () => world.shops,
+    /** Camera clearance to the nearest solid: inside (r=0) or within near-plane reach (r=0.1). */
+    camState: () => ({
+      pos: camera.position.toArray(),
+      cur: cam.cur,
+      inside: camInside(camera.position, 0),
+      nearClip: camInside(camera.position, 0.1),
+    }),
+    /** Tiny offscreen render of the current view: share of pixels in the most common colour bucket. */
+    viewUniformity: () => {
+      const W = 48, H = 27;
+      auditRT ??= new THREE.WebGLRenderTarget(W, H);
+      const buf = new Uint8Array(W * H * 4);
+      const prev = renderer.getRenderTarget();
+      renderer.setRenderTarget(auditRT);
+      renderer.render(scene, camera);
+      renderer.readRenderTargetPixels(auditRT, 0, 0, W, H, buf);
+      renderer.setRenderTarget(prev);
+      const counts = new Map<number, number>();
+      for (let i = 0; i < buf.length; i += 4) {
+        const k = ((buf[i] >> 4) << 8) | ((buf[i + 1] >> 4) << 4) | (buf[i + 2] >> 4);
+        counts.set(k, (counts.get(k) ?? 0) + 1);
+      }
+      return Math.max(...counts.values()) / (W * H);
+    },
     info: () => ({
       fps,
       boost: { phase: boost.phase, t: boost.t, k: boost.k, energy: boost.energy, thrust: boost.thrust },
