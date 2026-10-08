@@ -24,7 +24,22 @@ html, body {
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
+
+/* No long-press callouts, text selection, image dragging or double-tap zoom on game surfaces. */
+#game, #hud, #hud *, .joystick, .joystick *, button, img, body.playing {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+img { -webkit-user-drag: none; pointer-events: none; }
+/* Modals and the title screen may need to scroll on short landscape phones. */
+.modal, .screen { touch-action: pan-y; }
+.modal button, .screen button { touch-action: manipulation; }
 
 #game {
   position: fixed;
@@ -120,7 +135,7 @@ body.touch .help-desk { display: none; }
   color: var(--gold);
   font-weight: 700;
   letter-spacing: 0.3em;
-  font-size: 1.05rem;
+  font-size: 1.2rem;
 }
 h1 {
   margin: 0 0 12px;
@@ -132,11 +147,11 @@ h1 {
 }
 h1 span {
   display: block;
-  font-size: 0.5em;
+  font-size: max(0.5em, 1.3rem);
   color: var(--gold);
   margin-top: 6px;
 }
-.lead { font-size: 1.15rem; line-height: 1.6; margin: 0 0 24px; }
+.lead { font-size: 1.25rem; line-height: 1.6; margin: 0 0 24px; }
 .howto {
   list-style: none;
   padding: 0;
@@ -170,7 +185,7 @@ h1 span {
   background: radial-gradient(circle at 50% 35%, #2a5a92, var(--navy));
   border: 3px solid var(--gold);
 }
-.hud-name { font-weight: 800; font-size: 1.05rem; color: var(--gold); }
+.hud-name { font-weight: 800; font-size: 1.15rem; color: var(--gold); }
 .hud-count { font-size: 1.35rem; font-weight: 800; color: #fff; }
 .hud-count b { color: var(--gold); font-size: 1.6rem; }
 .gem { color: var(--gold); }
@@ -189,7 +204,7 @@ h1 span {
   max-width: 60vw;
 }
 .objective:empty { display: none; }
-.objective small { display: block; font-size: 1.1rem; color: var(--gold); letter-spacing: 0.1em; }
+.objective small { display: block; font-size: 1.25rem; color: var(--gold); letter-spacing: 0.1em; }
 .objective .obj-name { display: block; color: #fff; }
 .objective .obj-dist { display: block; font-size: 1.25rem; color: var(--gold-2); }
 
@@ -390,7 +405,7 @@ body.touch .toast { bottom: auto; top: calc(40% + env(safe-area-inset-top)); }
 .act-btn.active { background: var(--gold); color: var(--navy); }
 
 /* ---------- AI Boost ---------- */
-.hud-energy { display: flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 1rem; font-weight: 800; color: #7fe3d8; }
+.hud-energy { display: flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 1.05rem; font-weight: 800; color: #7fe3d8; }
 .hud-energy span { margin-right: 3px; }
 .hud-energy i {
   --f: 0;
@@ -508,7 +523,7 @@ body.touch .boost-btn { right: calc(20px + env(safe-area-inset-right)); bottom: 
 }
 .setting-label { text-align: left; font-weight: 800; margin: 8px 0 10px; color: var(--gold); }
 .seg { margin-bottom: 18px; }
-.stats { font-size: 1rem; color: #c4d0e4; margin: 0 0 18px; font-variant-numeric: tabular-nums; }
+.stats { font-size: 1.05rem; color: #c4d0e4; margin: 0 0 18px; font-variant-numeric: tabular-nums; }
 
 @keyframes fade { from { opacity: 0; } }
 @keyframes pop { from { transform: scale(0.7); opacity: 0; } }
@@ -522,8 +537,8 @@ body.touch .boost-btn { right: calc(20px + env(safe-area-inset-right)); bottom: 
   #hud-portrait { width: 60px; height: 60px; }
   .hud-player { padding: 6px 14px 6px 6px; }
   .objective { top: calc(124px + env(safe-area-inset-top)); font-size: 1.3rem; max-width: calc(100vw - 170px); padding: 8px 14px; }
-  .objective small { font-size: 1rem; }
-  .objective .obj-dist { font-size: 1.15rem; }
+  .objective small { font-size: 1.2rem; }
+  .objective .obj-dist { font-size: 1.2rem; }
   .howto { font-size: 1.2rem; }
   .title-portrait { width: 128px; height: 128px; }
 }
@@ -542,7 +557,7 @@ body.touch .boost-btn { right: calc(20px + env(safe-area-inset-right)); bottom: 
   .card { padding: 18px 22px; }
   .card h2 { margin: 4px 0 8px; }
   .badge, .complete-portrait { display: none; }
-  .done-list { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; font-size: 1.1rem; }
+  .done-list { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; font-size: 1.2rem; }
   .card-complete .progress { font-size: 2rem; margin: 0 0 10px; }
   .placeholder { padding: 12px; margin: 8px 0 10px; }
   .progress { margin-bottom: 12px; }

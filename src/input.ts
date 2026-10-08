@@ -39,6 +39,7 @@ export class Input {
 
     // Camera orbit: drag anywhere on the 3D view.
     canvas.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
       if (this.orbitPointer !== -1) return;
       this.orbitPointer = e.pointerId;
       this.lastPX = e.clientX;
@@ -58,18 +59,19 @@ export class Input {
     };
     canvas.addEventListener('pointerup', endOrbit);
     canvas.addEventListener('pointercancel', endOrbit);
+    canvas.addEventListener('lostpointercapture', endOrbit);
 
     // Virtual joystick
     const zone = document.getElementById('joystick')!;
     const base = zone.querySelector('.joy-base') as HTMLElement;
     zone.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
       if (this.joy.id !== -1) return;
       const r = base.getBoundingClientRect();
       this.joy = { id: e.pointerId, cx: r.left + r.width / 2, cy: r.top + r.height / 2, x: 0, y: 0 };
       zone.setPointerCapture(e.pointerId);
       this.updateJoy(e.clientX, e.clientY, r.width / 2);
-      e.preventDefault();
-    });
+    }, { passive: false });
     zone.addEventListener('pointermove', (e) => {
       if (e.pointerId !== this.joy.id) return;
       this.updateJoy(e.clientX, e.clientY, base.getBoundingClientRect().width / 2);
@@ -82,6 +84,7 @@ export class Input {
     };
     zone.addEventListener('pointerup', endJoy);
     zone.addEventListener('pointercancel', endJoy);
+    zone.addEventListener('lostpointercapture', endJoy);
 
     this.runBtn.addEventListener('pointerdown', (e) => {
       e.preventDefault();
@@ -98,6 +101,24 @@ export class Input {
     jumpBtn.addEventListener('pointerup', up);
     jumpBtn.addEventListener('pointercancel', up);
     jumpBtn.addEventListener('pointerleave', up);
+
+    // Long-press menus ("save image"), text selection, drag ghosts and iOS pinch/double-tap
+    // zoom would interrupt a held joystick or camera drag.
+    const block = (e: Event) => e.preventDefault();
+    for (const ev of ['contextmenu', 'selectstart', 'dragstart', 'gesturestart', 'gesturechange', 'gestureend']) {
+      document.addEventListener(ev, block, { passive: false });
+    }
+    // These controls are driven by pointer events only, so cancelling the touch defaults is safe.
+    for (const el of [canvas, zone, this.runBtn, jumpBtn, document.getElementById('boost-btn')]) {
+      el?.addEventListener('touchstart', block, { passive: false });
+    }
+    document.addEventListener(
+      'touchmove',
+      (e) => {
+        if (document.body.classList.contains('playing') && !(e.target as Element).closest?.('.modal')) e.preventDefault();
+      },
+      { passive: false },
+    );
   }
 
   setTouch(v: boolean) {

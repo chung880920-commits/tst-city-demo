@@ -675,6 +675,7 @@ function boot() {
       const by = Math.round(((1 - headPos.y) / 2) * window.innerHeight);
       if (bx !== bubbleAt.x || by !== bubbleAt.y) {
         bubbleAt.x = bx;
+    document.body.classList.add('playing');
         bubbleAt.y = by;
         bubble.style.setProperty('--x', `${bx}px`);
         bubble.style.setProperty('--y', `${by}px`);
