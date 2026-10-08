@@ -141,9 +141,11 @@ of the same frames, so every shot keeps its subject inside the central square. T
 
 - **Sound effects:** the logged sound calls are replayed through `src/audio.ts` into an
   `OfflineAudioContext`, sample-accurate to the frame.
-- **Music:** `promo/music.mjs` synthesises the original 120 BPM track with its drop at
+- **Music:** "Espelhar" by Fupi (CC0, OpenGameArt; see `promo/MUSIC-LICENSE.md`). The
+  18 s cut runs from 64.05 s to 82.05 s of the file, so its main drop (72.07 s) lands at
   8.02 s. That is exactly when the transform's armour-lock chord sounds (trigger at frame
-  216, plus 0.82 s). The flash and 「AI 加速」 title appear on frame 241.
+  216, plus 0.82 s). The flash and 「AI 加速」 title appear on frame 241. Use
+  `--music synth` for the original fallback track from `promo/music.mjs`.
 - **Overlays:** captions and the end card are rendered from `promo/overlay.html` as
   transparent PNGs for each format and composited with ffmpeg.
 - **Private end card:** the contact details and logo live in the git-ignored

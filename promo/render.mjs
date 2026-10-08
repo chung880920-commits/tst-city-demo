@@ -80,9 +80,25 @@ function writeWav(path, pcm, sr) {
 }
 
 // ------------------------------------------------------------------ 2. music + mix
-sh('node', [join(here, 'music.mjs'), join(OUT, 'music.wav'), String(DROP), String(SECONDS)]);
+// --music espelhar (default): "Espelhar - LOUD Melodic EDM" by Fupi (CC0, OpenGameArt), cut so its
+// main drop (72.242 s in the file, measured) lands on DROP. --music synth: the original promo/music.mjs track.
+const MUSIC = arg('music', 'espelhar');
+const TRACKS = {
+  espelhar: { file: join(here, 'music', 'espelhar_fupi_cc0.ogg'), drop: 72.07, gain: 0.55 },
+};
+if (MUSIC === 'synth') {
+  sh('node', [join(here, 'music.mjs'), join(OUT, 'music.wav'), String(DROP), String(SECONDS)]);
+} else {
+  const tr = TRACKS[MUSIC];
+  const start = tr.drop - DROP;
+  sh('ffmpeg', ['-y', '-v', 'error', '-i', tr.file, '-af',
+    `atrim=start=${start.toFixed(4)}:duration=${SECONDS},asetpts=PTS-STARTPTS,aresample=48000,afade=t=in:d=0.25,afade=t=out:st=${SECONDS - 1.6}:d=1.6`,
+    '-ac', '2', join(OUT, 'music.wav')]);
+}
+const musicGain = MUSIC === 'synth' ? 0.8 : TRACKS[MUSIC].gain;
+const sfxGain = MUSIC === 'synth' ? 1.6 : 2.2;
 sh('ffmpeg', ['-y', '-v', 'error', '-i', join(OUT, 'music.wav'), '-i', join(OUT, 'sfx.wav'),
-  '-filter_complex', '[1:a]volume=1.6[s];[0:a]volume=0.8[m];[m][s]amix=inputs=2:normalize=0,volume=5.5dB,alimiter=limit=0.89:attack=2:release=60:level=false[a]',
+  '-filter_complex', `[1:a]volume=${sfxGain}[s];[0:a]volume=${musicGain}[m];[m][s]amix=inputs=2:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=11,alimiter=limit=0.84:attack=2:release=60:level=false[a]`,
   '-map', '[a]', '-ar', '48000', '-ac', '2', join(OUT, 'mix.wav')]);
 
 // ------------------------------------------------------------------ 3. overlays
@@ -90,7 +106,7 @@ const CAPS = [
   // id, start, end, fade-in, fade-out
   ['title', 0.25, 2.3, 0.3, 0.3],
   ['unlock', 2.7, 4.95, 0.25, 0.2],
-  ['energy', 5.25, 7.15, 0.2, 0.2],
+  ['energy', MUSIC === 'synth' ? 5.25 : 6.086, 7.25, MUSIC === 'synth' ? 0.2 : 0, 0.2],
   ['speech', 7.35, 9.9, 0.15, 0.3],
   ['flash', 8 + 1 / 30, 8.3, 0, 0.27],
   ['boost', 8 + 1 / 30, 12.9, 0, 0.3],
