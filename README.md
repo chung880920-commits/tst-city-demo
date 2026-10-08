@@ -122,6 +122,34 @@ npm run qa:camera   # hugs 6 storefronts (static angle sweep, walk, run, AI Boos
                     # of a surface, or if one colour fills > 90 % of the view
 ```
 
+## Promo video (internal)
+
+`promo/` renders an 18 s promo deterministically instead of screen-recording (software GL
+stutters in real time). Opening the game with `?record=1` hides all DOM UI, forces high
+quality at 1× pixel ratio, seeds `Math.random`, steps a manual clock, and logs every sound
+call with its time. `promo/timeline.js` scripts the avatar and camera shot by shot.
+
+```bash
+npm run dev                                   # keep running
+node promo/render.mjs                         # → /tmp/promo/tst-promo-1080x1920.mp4 and -1920x1080.mp4
+node promo/verify.mjs /tmp/promo              # frame cadence, duplicates, durations, A/V sync at the drop
+node promo/preview.mjs                        # fast 480 px dry run of the timeline (every 15th frame)
+```
+
+One pass renders 540 square 1920 × 1920 PNG frames (30 fps). Both formats are centre crops
+of the same frames, so every shot keeps its subject inside the central square. Then:
+
+- **Sound effects:** the logged sound calls are replayed through `src/audio.ts` into an
+  `OfflineAudioContext`, sample-accurate to the frame.
+- **Music:** `promo/music.mjs` synthesises the original 120 BPM track with its drop at
+  8.02 s. That is exactly when the transform's armour-lock chord sounds (trigger at frame
+  216, plus 0.82 s). The flash and 「AI 加速」 title appear on frame 241.
+- **Overlays:** captions and the end card are rendered from `promo/overlay.html` as
+  transparent PNGs for each format and composited with ffmpeg.
+- **Private end card:** the contact details and logo live in the git-ignored
+  `promo/private/endcard.json` (`{"phone", "url", "logo"}`; `logo` is a file path relative
+  to that folder). Without a logo file, a text wordmark is used.
+
 ## Deploy
 
 **GitHub Pages (included workflow).** Live at

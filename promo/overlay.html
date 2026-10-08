@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-HK">
+<head>
+<meta charset="utf-8" />
+<style>
+  :root { --navy: #0b1f3a; --gold: #f5c542; --cream: #fff6e0; --teal: #7fe3d8; }
+  html, body { margin: 0; background: transparent; overflow: hidden; }
+  body { font-family: 'Noto Sans CJK TC', 'Noto Sans TC', 'WenQuanYi Micro Hei', sans-serif; color: var(--cream); }
+  .stage { position: relative; width: 100vw; height: 100vh; }
+  .cap { position: absolute; left: 50%; transform: translateX(-50%); text-align: center; white-space: nowrap; }
+  .pill {
+    display: inline-block; padding: 0.32em 0.9em 0.38em; border-radius: 0.7em;
+    background: rgba(11, 31, 58, 0.84); border: 4px solid rgba(245, 197, 66, 0.9);
+    font-weight: 900; letter-spacing: 0.04em; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  }
+  .sub { display: block; margin-top: 0.45em; font-weight: 700; color: var(--gold); letter-spacing: 0.12em; }
+  .big { font-weight: 900; color: #fff; letter-spacing: 0.06em; line-height: 1.05;
+    text-shadow: 0 6px 0 var(--navy), 0 0 40px rgba(245, 197, 66, 0.75), 0 0 90px rgba(127, 227, 216, 0.5); }
+  .big .sub { color: var(--gold); text-shadow: 0 4px 0 var(--navy), 0 0 24px rgba(0, 0, 0, 0.6); }
+  .bubble { position: relative; display: inline-block; background: #fff; color: var(--navy); font-weight: 900;
+    padding: 0.5em 0.9em; border-radius: 0.8em; border: 5px solid var(--gold); box-shadow: 0 14px 40px rgba(0,0,0,0.35); }
+  .bubble::after { content: ''; position: absolute; left: 50%; bottom: -0.55em; margin-left: -0.5em;
+    border: 0.5em solid transparent; border-top-color: var(--gold); border-bottom: 0; }
+  .bubble.up::after { bottom: auto; top: -0.55em; border: 0.5em solid transparent; border-bottom-color: var(--gold); border-top: 0; }
+  .pips { display: inline-flex; gap: 0.35em; margin-left: 0.5em; vertical-align: middle; }
+  .pips i { width: 0.8em; height: 0.8em; border-radius: 50%; background: var(--teal); box-shadow: 0 0 18px var(--teal); display: inline-block; }
+  .flash { position: absolute; inset: 0; background: radial-gradient(circle at 50% 45%, #fff 0%, rgba(255, 246, 224, 0.9) 35%, rgba(245, 197, 66, 0.55) 75%); }
+  /* end card */
+  .end { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 35%, #173a68 0%, var(--navy) 70%);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+  .end .logo { max-width: 62%; max-height: 22%; object-fit: contain; }
+  .end .wordmark { font-weight: 900; color: #fff; letter-spacing: 0.02em; }
+  .end .wordmark b { color: var(--gold); }
+  .end .cta { font-weight: 900; color: #fff; line-height: 1.3; }
+  .end .wa { margin-top: 0.9em; font-weight: 800; color: var(--gold); display: inline-flex; align-items: center; gap: 0.4em;
+    background: rgba(255, 255, 255, 0.08); border: 3px solid rgba(245, 197, 66, 0.7); border-radius: 999px; padding: 0.3em 1em; }
+  .end .url { margin-top: 0.7em; font-weight: 700; color: var(--cream); letter-spacing: 0.08em; }
+  .end .rule { width: 18%; height: 6px; border-radius: 3px; background: var(--gold); margin: 1.1em 0; }
+</style>
+</head>
+<body>
+<div class="stage" id="stage"></div>
+<script type="module">
+  const q = new URLSearchParams(location.search);
+  const fmt = q.get('fmt'); // 'v' 1080x1920 or 'h' 1920x1080
+  const id = q.get('id');
+  const V = fmt === 'v';
+  const cfg = JSON.parse(decodeURIComponent(q.get('cfg') || '%7B%7D'));
+  const stage = document.getElementById('stage');
+  const px = (v, h) => `${V ? v : h}px`;
+  const cap = (top, html, size) => `<div class="cap" style="top:${top};font-size:${size}">${html}</div>`;
+  const pips = '<span class="pips"><i></i><i></i><i></i></span>';
+  const views = {
+    title: () => cap(px(250, 70), `<div class="big" style="font-size:${px(112, 104)}">尖沙咀城市尋寶<span class="sub" style="font-size:${px(56, 48)}">3D 海濱試玩 · 手機即玩</span></div>`, '10px'),
+    unlock: () => cap(px(1420, 840), `<span class="pill">行到地標 · 解鎖寶藏點</span>`, px(64, 58)),
+    energy: () => cap(px(1420, 840), `<span class="pill">集滿能量${pips}</span>`, px(64, 58)),
+    speech: () => cap(px(1340, 800), `<span class="bubble up">轉型唔係換人，係升級自己</span>`, px(60, 56)),
+    flash: () => '<div class="flash"></div>',
+    boost: () => cap(px(250, 60), `<div class="big" style="font-size:${px(150, 132)}">AI 加速<span class="sub" style="font-size:${px(60, 52)}">針織戰甲 · 2× 速度</span></div>`, '10px'),
+    outro: () => cap(px(1420, 840), `<span class="pill">一部手機 · 隨時開玩</span>`, px(64, 58)),
+    end: () => `<div class="end">
+        ${cfg.logo ? `<img class="logo" src="${cfg.logo}" />` : `<div class="wordmark" style="font-size:${px(120, 110)}">Go<b>Projects</b></div>`}
+        <div class="rule"></div>
+        <div class="cta" style="font-size:${px(78, 76)}">${V ? '想為你團隊<br>度身訂造？<br>WhatsApp 我哋' : '想為你團隊度身訂造？<br>WhatsApp 我哋'}</div>
+        <div class="wa" style="font-size:${px(56, 50)}">WhatsApp ${cfg.phone ?? ''}</div>
+        <div class="url" style="font-size:${px(52, 46)}">${cfg.url ?? ''}</div>
+      </div>`,
+  };
+  stage.innerHTML = views[id]();
+  await document.fonts.ready;
+  await Promise.all([...document.images].map((i) => (i.complete ? 0 : new Promise((r) => (i.onload = i.onerror = r)))));
+  document.body.dataset.ready = '1';
+</script>
+</body>
+</html>

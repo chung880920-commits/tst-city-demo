@@ -7,6 +7,8 @@ const MUTE_KEY = 'tst-muted';
 export class Sound {
   ctx: AudioContext | null = null;
   muted = false;
+  /** Rendering into an OfflineAudioContext (promo record mode): no timers, no running-state gate. */
+  private offline = false;
   private master!: GainNode;
   private sfx!: GainNode;
   private waves!: GainNode;
@@ -41,6 +43,14 @@ export class Sound {
     src.buffer = b;
     src.connect(this.ctx.destination);
     src.start(0);
+  }
+
+  /** Renders the same sounds into an offline context; call methods from ctx.suspend() callbacks. */
+  attachOffline(ctx: OfflineAudioContext) {
+    this.ctx = ctx as unknown as AudioContext;
+    this.offline = true;
+    this.muted = false;
+    this.build();
   }
 
   setMuted(m: boolean) {
@@ -111,7 +121,7 @@ export class Sound {
     cLp.frequency.value = 380;
     cSrc.connect(cLp).connect(this.city);
     cSrc.start();
-    this.scheduleTram();
+    if (!this.offline) this.scheduleTram();
   }
 
   private scheduleTram() {
@@ -156,7 +166,7 @@ export class Sound {
   }
 
   step(running: boolean) {
-    if (!this.ctx || this.ctx.state !== 'running') return;
+    if (!this.ctx || (this.ctx.state !== 'running' && !this.offline)) return;
     const ctx = this.ctx;
     const t = ctx.currentTime;
     const src = ctx.createBufferSource();

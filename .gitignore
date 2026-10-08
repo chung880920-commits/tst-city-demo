@@ -29,3 +29,7 @@ tst-city/
 
 # local screenshot tooling output
 shots/
+
+# promo: private end-card copy and brand assets, rendered videos
+promo/private/
+*.mp4

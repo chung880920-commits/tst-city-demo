@@ -6,7 +6,12 @@ import { createLights, createSky, createTimeOfDay, createWater, FOG_COLOR, SUN_D
 import { Burst, FootTrail, GuideLine, Navigator } from './guide';
 import { Input } from './input';
 import { Minimap } from './minimap';
+import { mulberry32 } from './builder';
 import { BOUNDS, buildWorld, CHECKPOINTS, CLOCK_TOWER, ZONES } from './world';
+
+/** ?record=1: deterministic frame-by-frame capture for the promo video (no DOM UI, stepped clock, logged audio). */
+const RECORD = new URLSearchParams(location.search).has('record');
+if (RECORD) Math.random = mulberry32(20261008);
 
 type Quality = 'ultra' | 'low' | 'high';
 const QUALITY_LABEL: Record<Quality, string> = { ultra: '省電', low: '流暢', high: '高畫質' };
@@ -69,7 +74,8 @@ else boot();
 
 function boot() {
   /** Wall clock, or a stepped clock when automated captures drive the game frame by frame. */
-  const clock = { manual: false, t: 0, now: () => (clock.manual ? clock.t : performance.now()) };
+  const clock = { manual: RECORD, t: 0, now: () => (clock.manual ? clock.t : performance.now()) };
+  if (RECORD) document.body.classList.add('rec');
   const canvas = $<HTMLCanvasElement>('game');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -169,8 +175,22 @@ function boot() {
 
   const savedQuality = store.get('tst-quality');
   const manualQuality = savedQuality === 'ultra' || savedQuality === 'low' || savedQuality === 'high';
-  let quality: Quality = manualQuality ? (savedQuality as Quality) : input.isTouch ? 'low' : 'high';
-  const auto = { active: !manualQuality, start: 0, frames: 0, rounds: 0, fps: 0, decided: '' };
+  let quality: Quality = RECORD ? 'high' : manualQuality ? (savedQuality as Quality) : input.isTouch ? 'low' : 'high';
+  const auto = { active: !manualQuality && !RECORD, start: 0, frames: 0, rounds: 0, fps: 0, decided: '' };
+
+  /** Record mode: every sound call is logged with its time so the soundtrack can be rendered offline. */
+  const soundLog: { t: number; fn: string; a: unknown[] }[] = [];
+  let recT0 = 0;
+  if (RECORD) {
+    for (const fn of ['step', 'chime', 'transform', 'fold', 'thrust', 'jingle', 'tramBell', 'updateAmbience'] as const) {
+      (sound as unknown as Record<string, (...a: unknown[]) => void>)[fn] = (...a: unknown[]) => {
+        soundLog.push({ t: (clock.t - recT0) / 1000, fn, a });
+      };
+    }
+  }
+  /** Scripted world-space movement and camera for record mode. */
+  let drive: { x: number; z: number; run: boolean } | null = null;
+  let camOverride: ((camera: THREE.PerspectiveCamera, t: number) => void) | null = null;
 
   const applyQuality = () => {
     const dpr = window.devicePixelRatio || 1;
@@ -401,15 +421,16 @@ function boot() {
     input.poll();
     const mx = input.move.x;
     const my = input.move.y;
-    const mag = Math.min(1, Math.hypot(mx, my));
+    const mag = drive ? Math.min(1, Math.hypot(drive.x, drive.z)) : Math.min(1, Math.hypot(mx, my));
     const fwdX = -Math.sin(cam.yaw);
     const fwdZ = -Math.cos(cam.yaw);
     const rightX = Math.cos(cam.yaw);
     const rightZ = -Math.sin(cam.yaw);
     const boosting = boost.phase === 'active';
-    const speed = boosting ? BOOST_SPEED : input.running ? RUN : WALK;
-    const tx = (fwdX * my + rightX * mx) * speed;
-    const tz = (fwdZ * my + rightZ * mx) * speed;
+    const running = drive ? drive.run : input.running;
+    const speed = boosting ? BOOST_SPEED : running ? RUN : WALK;
+    const tx = drive ? drive.x * speed : (fwdX * my + rightX * mx) * speed;
+    const tz = drive ? drive.z * speed : (fwdZ * my + rightZ * mx) * speed;
     const accel = player.grounded ? (boosting ? 7 : 12) : 4;
     player.vel.x += (tx - player.vel.x) * Math.min(1, dt * accel);
     player.vel.z += (tz - player.vel.z) * Math.min(1, dt * accel);
@@ -467,7 +488,7 @@ function boot() {
     blob.position.set(player.pos.x, ground + 0.03, player.pos.z);
     const lift = player.pos.y - ground;
     blob.scale.setScalar(Math.max(0.4, 1 - lift * 0.25));
-    return { move: planar / WALK, running: (input.running || boosting) && planar > WALK * 0.9 };
+    return { move: planar / WALK, running: (running || boosting) && planar > WALK * 0.9 };
   };
 
   // -------------------------------------------------------------------- UI
@@ -598,7 +619,7 @@ function boot() {
     sound.chime();
     if (navigator.vibrate) navigator.vibrate([40, 30, 90]);
     window.clearTimeout(rewardTimer);
-    rewardTimer = window.setTimeout(() => openModal('popup'), 1500);
+    if (!RECORD) rewardTimer = window.setTimeout(() => openModal('popup'), 1500);
   };
 
   const resetProgress = () => {
@@ -945,6 +966,10 @@ function boot() {
       const stepped = avatar.update(dt, t, res.move, res.running, !player.grounded);
       if (stepped) sound.step(res.running);
       updateCamera(dt, res.move);
+      if (camOverride) {
+        camOverride(camera, (clock.t - recT0) / 1000);
+        avatar.root.visible = true;
+      }
       updateIdleHint(res.move > 0.05 || !player.grounded || Math.hypot(input.move.x, input.move.y) > 0.05);
       updateGuide(dt, t);
 
@@ -1053,6 +1078,73 @@ function boot() {
     },
     colliders: () => colliders.slice(0, world.staticCount).filter((c) => c.h > 3),
     shops: () => world.shops,
+    /** Record mode: t = 0 for the sound log and scripted timeline. */
+    recBegin: () => {
+      clock.t = Math.max(clock.t, performance.now());
+      recT0 = clock.t;
+      soundLog.length = 0;
+    },
+    drive: (x: number, z: number, run = false) => {
+      drive = x || z ? { x, z, run } : { x: 0, z: 0, run };
+    },
+    stopDrive: () => {
+      drive = null;
+    },
+    camOverride: (fn: ((camera: THREE.PerspectiveCamera, t: number) => void) | null) => {
+      camOverride = fn;
+    },
+    camera: () => camera,
+    /** Fades toward a partial night level (0 = sunset, 1 = full night) at the normal toggle speed. */
+    setNightLevel: (k: number) => {
+      nightTarget = THREE.MathUtils.clamp(k, 0, 1);
+    },
+    endReward: () => {
+      state = 'play';
+      input.enabled = true;
+      cam.pushTarget = 0;
+    },
+    soundLog: () => soundLog.slice(),
+    /** Renders the logged sound calls through the real Sound class into 16-bit stereo PCM (base64). */
+    renderSfx: async (log: { t: number; fn: string; a: unknown[] }[], seconds: number, sampleRate = 48000) => {
+      const off = new OfflineAudioContext(2, Math.ceil(seconds * sampleRate), sampleRate);
+      const s = new Sound();
+      s.attachOffline(off);
+      const q = 128 / sampleRate;
+      const groups = new Map<number, typeof log>();
+      for (const e of log) {
+        const k = Math.max(1, Math.round(e.t / q));
+        if (k * q >= seconds) continue;
+        if (!groups.has(k)) groups.set(k, []);
+        groups.get(k)!.push(e);
+      }
+      for (const [k, evs] of groups) {
+        void off.suspend(k * q).then(() => {
+          for (const e of evs) (s as unknown as Record<string, (...a: unknown[]) => void>)[e.fn](...e.a);
+          void off.resume();
+        });
+      }
+      const buf = await off.startRendering();
+      const l = buf.getChannelData(0);
+      const r = buf.getChannelData(1);
+      const pcm = new Int16Array(l.length * 2);
+      for (let i = 0; i < l.length; i++) {
+        pcm[i * 2] = Math.max(-1, Math.min(1, l[i])) * 32767;
+        pcm[i * 2 + 1] = Math.max(-1, Math.min(1, r[i])) * 32767;
+      }
+      const bytes = new Uint8Array(pcm.buffer);
+      let bin = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      return btoa(bin);
+    },
+    /** Must run in the same task as the render (the drawing buffer is not preserved). */
+    tick: (ms: number) => {
+      clock.t += ms;
+      return (clock.t - recT0) / 1000;
+    },
+    renderGrab: (type = 'image/png', quality = 0.92) => {
+      frame(clock.t);
+      return canvas.toDataURL(type, quality);
+    },
     /** Camera clearance to the nearest solid: inside (r=0) or within near-plane reach (r=0.1). */
     camState: () => ({
       pos: camera.position.toArray(),

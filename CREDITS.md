@@ -35,6 +35,18 @@ filters). They were written for this project and are released as
 | AI Boost fold-back | The same plucks descending, with a downward whoosh | CC0 (self-made) |
 | Completion jingle | Original 8-beat triangle-wave fanfare with a bass line (not based on any existing tune) | CC0 (self-made) |
 
+### Promo video (`promo/`, internal review only)
+
+| Element | Source | Licence |
+|---|---|---|
+| Music: 18 s, 120 BPM track (marimba arpeggios, pad, riser, drop, drums, bass, pentatonic hook) | Original composition, synthesised sample-by-sample by `promo/music.mjs` (no samples, no loops, not based on any existing tune) | CC0 1.0 (self-made) |
+| Sound effects in the video | The game's own `src/audio.ts` sounds, re-rendered offline from the recorded run | CC0 1.0 (self-made) |
+| Caption font | [Noto Sans CJK TC](https://github.com/notofonts/noto-cjk) (system package `fonts-noto-cjk`), used only to render captions into the video; not bundled | SIL Open Font License 1.1 |
+| GoProjects logo and end-card contact details | Supplied by the client; kept in the git-ignored `promo/private/`, not committed | Client-owned |
+
+No third-party or "CC0 candidate" music has been used so far. If the team supplies one,
+record its source URL and licence here before rendering with it.
+
 Text is rendered with the visitor's system fonts (for example PingFang HK, Microsoft
 JhengHei or Noto Sans TC); no font files are bundled.
 

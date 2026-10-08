@@ -52,6 +52,7 @@ img { -webkit-user-drag: none; pointer-events: none; }
 }
 
 [hidden] { display: none !important; }
+body.rec > *:not(#game) { display: none !important; }
 
 body:not(.touch) .touch-only { display: none !important; }
 body.touch .desk-only { display: none !important; }
