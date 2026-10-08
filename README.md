@@ -108,6 +108,20 @@ npm run preview    # serves dist/ on http://localhost:47322
 `vite.config.ts` uses `base: './'`, so `dist/` works from any sub-path — a GitHub
 Pages project site, an S3 bucket, a USB stick served by any static server.
 
+## Browser QA
+
+With `npm run dev` running, these drive headless Chrome (set `CHROME` to its path and
+`QA_URL` if not on port 47321). They run on software GL, so each takes several minutes.
+
+```bash
+npm run qa:touch    # mobile emulation: 2.5 s long-press + ≥ 5 s joystick drag to the first
+                    # checkpoint (no context menu, no pointercancel, unlock fires), long-press on
+                    # canvas/buttons, touch CSS, and every visible text ≥ 18 px on 5 screens
+npm run qa:camera   # hugs 6 storefronts (static angle sweep, walk, run, AI Boost) and the unlock
+                    # push-in; fails if any frame puts the camera inside / within near-plane reach
+                    # of a surface, or if one colour fills > 90 % of the view
+```
+
 ## Deploy
 
 **GitHub Pages (included workflow).** Live at

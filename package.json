@@ -6,10 +6,13 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "qa:touch": "node tests/run.mjs tests/touch-qa.mjs",
+    "qa:camera": "node tests/run.mjs tests/camera-qa.mjs"
   },
   "devDependencies": {
     "@types/three": "^0.186.0",
+    "playwright-core": "^1.64.0",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"
   },
