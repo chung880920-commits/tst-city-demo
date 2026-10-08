@@ -68,6 +68,8 @@ if (!webglAvailable()) fail();
 else boot();
 
 function boot() {
+  /** Wall clock, or a stepped clock when automated captures drive the game frame by frame. */
+  const clock = { manual: false, t: 0, now: () => (clock.manual ? clock.t : performance.now()) };
   const canvas = $<HTMLCanvasElement>('game');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -246,7 +248,7 @@ function boot() {
     cam.pitch = THREE.MathUtils.clamp(cam.pitch + orbit.y * sens * 0.8, -0.3, 1.15);
 
     cam.push += (cam.pushTarget - cam.push) * Math.min(1, dt * 3.5);
-    const now = performance.now() / 1000;
+    const now = clock.now() / 1000;
     if (cam.pushTarget > 0) {
       // swing round to face the cheering avatar
       cam.yaw += angleTo(cam.yaw, player.heading + 0.35) * Math.min(1, dt * 3);
@@ -623,7 +625,7 @@ function boot() {
     canvas.tabIndex = 0;
     canvas.focus({ preventScroll: true });
     currentZone = '';
-    lastMoveAt = performance.now();
+    lastMoveAt = clock.now();
     if (found.size === CHECKPOINTS.length) showToast('全部寶藏已搵齊，隨便行吓！');
   };
   startBtn.addEventListener('click', start);
@@ -645,7 +647,7 @@ function boot() {
 
   // ------------------------------------------------------------ idle hint & speech
   const bubble = $('bubble');
-  let lastMoveAt = performance.now();
+  let lastMoveAt = clock.now();
   let hintShown = false;
   let sayText = '';
   let sayUntil = 0;
@@ -654,10 +656,10 @@ function boot() {
   const IDLE_SECONDS = 15;
   const say = (text: string, seconds: number) => {
     sayText = text;
-    sayUntil = performance.now() + seconds * 1000;
+    sayUntil = clock.now() + seconds * 1000;
   };
   const updateIdleHint = (moving: boolean) => {
-    const now = performance.now();
+    const now = clock.now();
     const saying = now < sayUntil;
     if (moving || saying || state !== 'play' || !nextCheckpoint()) lastMoveAt = now;
     const hint = state === 'play' && now - lastMoveAt > IDLE_SECONDS * 1000;
@@ -706,7 +708,7 @@ function boot() {
     player.vel.set(0, 0, 0);
     cam.pushTarget = 1;
     sound.transform();
-    say(BOOST_LINE.zh, 3.2);
+    say(BOOST_LINE.zh, 2.6);
     burst.fire(player.pos.x, 1.2, player.pos.z, quality === 'ultra' ? 14 : quality === 'low' ? 28 : 45);
     if (navigator.vibrate) navigator.vibrate(35);
     syncEnergy();
@@ -838,10 +840,10 @@ function boot() {
   const frame = (now?: number) => {
     timer.update(now);
     // Simulation steps are capped for stability; fades and autosave follow wall-clock time.
-    const realDt = Math.min(timer.getDelta(), 0.25);
+    const realDt = THREE.MathUtils.clamp(timer.getDelta(), 0, 0.25);
     const dt = Math.min(realDt, 1 / 20);
     const t = timer.getElapsed();
-    updateAutoQuality(performance.now());
+    updateAutoQuality(clock.now());
 
     if (Math.abs(nightK - nightTarget) > 0.001) {
       nightK += Math.sign(nightTarget - nightK) * Math.min(Math.abs(nightTarget - nightK), realDt * 0.4);
@@ -930,7 +932,7 @@ function boot() {
       const info = renderer.info.render;
       statsEl.textContent = `${fps} fps · ${(info.triangles / 1000).toFixed(0)}k 三角形 · ${info.calls} draw calls`;
     }
-    requestAnimationFrame(frame);
+    if (!clock.manual) requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
 
@@ -945,7 +947,7 @@ function boot() {
       cam.pitch = pitch;
       cam.dist = dist;
       cam.cur = dist;
-      input.lastOrbitAt = performance.now() / 1000 + 9999;
+      input.lastOrbitAt = clock.now() / 1000 + 9999;
     },
     titleCam: (x: number, y: number, z: number, lx: number, ly: number, lz: number) => {
       freezeTitleCam = true;
@@ -970,6 +972,17 @@ function boot() {
       syncEnergy();
     },
     boost: () => triggerBoost(),
+    /** Stops the rAF loop; advance(ms) then renders exactly one frame of that length. */
+    manual: (on: boolean) => {
+      if (on === clock.manual) return;
+      clock.t = performance.now();
+      clock.manual = on;
+      if (!on) requestAnimationFrame(frame);
+    },
+    advance: (ms: number) => {
+      clock.t += ms;
+      frame(clock.t);
+    },
     colliders: () => colliders.slice(0, world.staticCount).filter((c) => c.h > 3),
     info: () => ({
       fps,
