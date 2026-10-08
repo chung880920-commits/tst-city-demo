@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { MeshBuilder } from './builder';
 
 const COL = {
@@ -6,7 +7,7 @@ const COL = {
   skinShade: '#e7b48e',
   hair: '#17171b',
   hairHi: '#2c2c34',
-  fade: '#5a4c44',
+  fade: '#463b35',
   tee: '#f7f5ef',
   knit: '#ece2cf',
   knitRib: '#ddd0b8',
@@ -62,26 +63,75 @@ function getKnitTexture() {
   return t;
 }
 
-/** Box with UVs scaled to its real size so the knit tiles evenly. */
-function knitBox(w: number, h: number, d: number, density = 5.5) {
-  const g = new THREE.BoxGeometry(w, h, d);
+type Rot = { rx?: number; ry?: number; rz?: number; sx?: number; sy?: number; sz?: number };
+
+/** Scales a geometry's UVs so the knit pattern tiles at roughly real-world size. */
+function tileUv(g: THREE.BufferGeometry, su: number, sv: number, density = 5.5) {
   const uv = g.getAttribute('uv') as THREE.BufferAttribute;
-  const dims: Array<[number, number]> = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];
-  for (let i = 0; i < uv.count; i++) {
-    const [a, b] = dims[Math.floor(i / 4)];
-    uv.setXY(i, uv.getX(i) * a * density, uv.getY(i) * b * density);
-  }
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * su * density, uv.getY(i) * sv * density);
   return g;
+}
+
+const rbox = (w: number, h: number, d: number, r = 0.05) => new RoundedBoxGeometry(w, h, d, 2, Math.min(r, w / 2, h / 2, d / 2) * 0.98);
+const capsule = (r: number, len: number, radial = 8) => new THREE.CapsuleGeometry(r, len, 3, radial);
+const ball = (r: number, w = 10, h = 8) => new THREE.SphereGeometry(r, w, h);
+
+const HEAD_R = 0.3;
+
+/** Sphere head with a softer, narrower jaw. */
+function headGeometry() {
+  const g = new THREE.SphereGeometry(HEAD_R, 16, 12);
+  const p = g.getAttribute('position') as THREE.BufferAttribute;
+  for (let i = 0; i < p.count; i++) {
+    let x = p.getX(i);
+    let y = p.getY(i);
+    let z = p.getZ(i);
+    const s = Math.max(0, -y / HEAD_R);
+    x *= 1 - 0.24 * s;
+    z *= 1 - 0.06 * s;
+    y *= y < 0 ? 0.92 : 1.04;
+    p.setXYZ(i, x, y, z);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+/** Hair cap: hairline lifted at the front, volume swept up and back. */
+function hairCapGeometry() {
+  const r = HEAD_R * 1.08;
+  const g = new THREE.SphereGeometry(r, 18, 9, 0, Math.PI * 2, 0, 1.3);
+  const p = g.getAttribute('position') as THREE.BufferAttribute;
+  for (let i = 0; i < p.count; i++) {
+    let x = p.getX(i);
+    let y = p.getY(i);
+    let z = p.getZ(i);
+    const t = y / r;
+    const f = Math.max(0, z / r);
+    const back = Math.max(0, -z / r);
+    y += f * (1 - t) * 0.12 + f * t * 0.07;
+    z += f * t * 0.03;
+    y -= back * (1 - t) * 0.03;
+    x *= 1.0 + (1 - t) * 0.02;
+    p.setXYZ(i, x, y * 1.04, z);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+/** Short faded band around the sides and back, open at the face. */
+function fadeBandGeometry() {
+  const front = Math.PI * 0.75;
+  return new THREE.SphereGeometry(HEAD_R * 1.035, 18, 4, Math.PI / 2 + front / 2, Math.PI * 2 - front, 1.15, 0.75);
 }
 
 class Part {
   plain = new MeshBuilder();
   knit = new MeshBuilder(true);
-  box(w: number, h: number, d: number, x: number, y: number, z: number, color: string, rot: { rx?: number; ry?: number; rz?: number } = {}) {
-    this.plain.add(new THREE.BoxGeometry(w, h, d), color, { x, y, z, ...rot });
+  add(g: THREE.BufferGeometry, x: number, y: number, z: number, color: string, rot: Rot = {}) {
+    this.plain.add(g, color, { x, y, z, ...rot });
   }
-  wool(w: number, h: number, d: number, x: number, y: number, z: number, color: string, rot: { rx?: number; ry?: number; rz?: number } = {}) {
-    this.knit.add(knitBox(w, h, d), color, { x, y, z, ...rot });
+  wool(g: THREE.BufferGeometry, su: number, sv: number, x: number, y: number, z: number, color: string, rot: Rot = {}) {
+    this.knit.add(tileUv(g, su, sv), color, { x, y, z, ...rot });
   }
   into(group: THREE.Object3D, mats: { plain: THREE.Material; knit: THREE.Material }) {
     for (const [b, m] of [[this.plain, mats.plain], [this.knit, mats.knit]] as const) {
@@ -101,7 +151,7 @@ export interface Avatar {
 
 export function createAvatar(): Avatar {
   const mats = {
-    plain: new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }),
+    plain: new THREE.MeshLambertMaterial({ vertexColors: true }),
     knit: new THREE.MeshLambertMaterial({ vertexColors: true, map: getKnitTexture() }),
   };
   const root = new THREE.Group();
@@ -114,9 +164,9 @@ export function createAvatar(): Avatar {
     const pivot = new THREE.Group();
     pivot.position.set(0.12 * s, 0.62, 0);
     const p = new Part();
-    p.box(0.21, 0.52, 0.24, 0, -0.27, 0, COL.trousers);
-    p.box(0.23, 0.12, 0.36, 0, -0.55, 0.05, COL.shoe);
-    p.box(0.235, 0.04, 0.37, 0, -0.6, 0.05, COL.sole);
+    p.add(capsule(0.105, 0.34), 0, -0.26, 0, COL.trousers);
+    p.add(rbox(0.21, 0.13, 0.34, 0.06), 0, -0.55, 0.05, COL.shoe);
+    p.add(rbox(0.22, 0.04, 0.35, 0.02), 0, -0.605, 0.05, COL.sole);
     p.into(pivot, mats);
     body.add(pivot);
     legs.push(pivot);
@@ -126,23 +176,21 @@ export function createAvatar(): Avatar {
   const torso = new THREE.Group();
   body.add(torso);
   const t = new Part();
-  t.box(0.48, 0.16, 0.28, 0, 0.66, 0, COL.trousers);
-  t.box(0.46, 0.6, 0.27, 0, 0.98, 0, COL.tee);
-  t.box(0.2, 0.05, 0.02, 0, 1.24, 0.135, '#e9e5dc'); // crew neck rib
-  t.wool(0.56, 0.66, 0.1, 0, 0.95, -0.12, COL.knit);
+  t.add(rbox(0.48, 0.2, 0.29, 0.08), 0, 0.67, 0, COL.trousers);
+  t.add(rbox(0.44, 0.62, 0.28, 0.1), 0, 0.98, 0.0, COL.tee);
+  t.add(new THREE.TorusGeometry(0.085, 0.018, 4, 14, Math.PI), 0, 1.255, 0.07, '#e9e5dc', { rx: Math.PI / 2 + 0.5, rz: Math.PI });
+  t.wool(rbox(0.58, 0.68, 0.3, 0.12), 0.58, 0.68, 0, 0.95, -0.03, COL.knit);
   for (const s of [1, -1]) {
-    t.wool(0.08, 0.66, 0.32, 0.27 * s, 0.95, 0, COL.knit);
-    t.wool(0.17, 0.66, 0.07, 0.19 * s, 0.95, 0.145, COL.knit);
-    // shawl collar lapels forming a deep V
-    t.wool(0.1, 0.46, 0.09, 0.125 * s, 1.06, 0.19, COL.knitRib, { rz: -0.26 * s });
-    t.wool(0.1, 0.16, 0.24, 0.16 * s, 1.3, 0.03, COL.knitRib);
+    t.wool(rbox(0.19, 0.66, 0.08, 0.035), 0.19, 0.66, 0.185 * s, 0.95, 0.135, COL.knit);
+    // rolled shawl collar: thick lapels forming a deep V and wrapping the neck
+    t.wool(capsule(0.05, 0.42, 6), 0.3, 0.5, 0.105 * s, 1.04, 0.172, COL.knitRib, { rz: -0.25 * s, sx: 1.5, sz: 0.5 });
+    t.wool(capsule(0.05, 0.1, 6), 0.3, 0.2, 0.135 * s, 1.27, 0.07, COL.knitRib, { rx: 0.6, sz: 0.7 });
     // patch pockets
-    t.wool(0.15, 0.17, 0.05, 0.2 * s, 0.73, 0.19, COL.knitRib);
+    t.wool(rbox(0.15, 0.17, 0.05, 0.02), 0.15, 0.17, 0.2 * s, 0.73, 0.18, COL.knitRib);
   }
-  t.wool(0.56, 0.08, 0.34, 0, 1.27, 0, COL.knit);
-  t.wool(0.4, 0.14, 0.12, 0, 1.31, -0.1, COL.knitRib);
-  t.wool(0.575, 0.08, 0.335, 0, 0.64, 0, COL.knitRib);
-  t.box(0.15, 0.12, 0.15, 0, 1.33, 0, COL.skin);
+  t.wool(capsule(0.06, 0.26, 6), 0.4, 0.2, 0, 1.31, -0.09, COL.knitRib, { rz: Math.PI / 2 });
+  t.wool(rbox(0.6, 0.08, 0.32, 0.035), 0.6, 0.08, 0, 0.64, -0.01, COL.knitRib);
+  t.add(new THREE.CylinderGeometry(0.075, 0.08, 0.16, 10), 0, 1.33, 0, COL.skin);
   t.into(torso, mats);
 
   // ---- head
@@ -150,26 +198,22 @@ export function createAvatar(): Avatar {
   head.position.set(0, 1.36, 0);
   body.add(head);
   const h = new Part();
-  h.box(0.6, 0.54, 0.54, 0, 0.29, 0, COL.skin);
+  const hc = HEAD_R - 0.01;
+  h.add(headGeometry(), 0, hc, 0, COL.skin);
   for (const s of [1, -1]) {
-    h.box(0.07, 0.15, 0.11, 0.32 * s, 0.3, -0.02, COL.skinShade);
-    h.box(0.075, 0.1, 0.03, 0.13 * s, 0.3, 0.27, COL.eye);
-    h.box(0.025, 0.025, 0.01, 0.115 * s, 0.33, 0.287, '#ffffff');
-    h.box(0.15, 0.035, 0.03, 0.13 * s, 0.41, 0.27, COL.eye, { rz: 0.06 * s });
-    h.box(0.08, 0.04, 0.01, 0.2 * s, 0.19, 0.272, COL.blush);
-    // short faded sides: dark band above the ear, lighter fade below
-    h.box(0.04, 0.12, 0.5, 0.31 * s, 0.5, -0.02, COL.hair);
-    h.box(0.03, 0.12, 0.42, 0.305 * s, 0.39, -0.05, COL.fade);
+    h.add(ball(0.065, 8, 6), 0.29 * s, hc - 0.01, -0.02, COL.skinShade, { sx: 0.45, sz: 0.8 });
+    h.add(ball(0.045, 8, 6), 0.11 * s, hc + 0.01, 0.268, COL.eye, { sx: 0.8, sy: 1.15, sz: 0.45 });
+    h.add(ball(0.014, 6, 4), 0.097 * s, hc + 0.035, 0.284, '#ffffff');
+    h.add(capsule(0.016, 0.075, 6), 0.115 * s, hc + 0.105, 0.255, COL.eye, { rz: Math.PI / 2 + 0.08 * s });
+    h.add(ball(0.04, 8, 4), 0.165 * s, hc - 0.075, 0.22, COL.blush, { sy: 0.6, sz: 0.3 });
   }
-  h.box(0.07, 0.09, 0.05, 0, 0.22, 0.285, COL.skinShade);
-  h.box(0.12, 0.025, 0.02, 0, 0.12, 0.272, COL.mouth);
-  // slicked-back top with volume at the front
-  h.box(0.64, 0.13, 0.6, 0, 0.6, -0.01, COL.hair);
-  h.box(0.6, 0.15, 0.17, 0, 0.63, 0.21, COL.hair, { rx: -0.28 });
-  h.box(0.6, 0.07, 0.05, 0, 0.545, 0.27, COL.hair);
-  for (const x of [-0.17, 0.0, 0.16]) h.box(0.07, 0.03, 0.52, x, 0.675, -0.03, COL.hairHi);
-  h.box(0.62, 0.32, 0.07, 0, 0.43, -0.28, COL.hair);
-  h.box(0.6, 0.12, 0.06, 0, 0.21, -0.275, COL.fade);
+  h.add(ball(0.036, 8, 6), 0, hc - 0.045, 0.29, COL.skinShade, { sy: 1.2 });
+  h.add(capsule(0.012, 0.06, 6), 0, hc - 0.13, 0.25, COL.mouth, { rz: Math.PI / 2 });
+  // hair: slicked-back swoop over a short faded back and sides
+  h.add(fadeBandGeometry(), 0, hc, 0, COL.fade);
+  h.add(hairCapGeometry(), 0, hc, -0.005, COL.hair);
+  h.add(ball(0.2, 12, 6), 0.01, hc + 0.27, 0.05, COL.hair, { sx: 1.32, sy: 0.4, sz: 1.3, rx: -0.2 });
+  for (const x of [-0.11, 0.0, 0.1]) h.add(capsule(0.011, 0.2, 4), x, hc + 0.31, -0.06, COL.hairHi, { rx: Math.PI / 2 - 0.3 });
   h.into(head, mats);
 
   // ---- arms
@@ -179,13 +223,14 @@ export function createAvatar(): Avatar {
     const pivot = new THREE.Group();
     pivot.position.set(0.335 * s, 1.22, 0);
     const a = new Part();
-    a.wool(0.16, 0.5, 0.17, 0, -0.23, 0, COL.knit);
-    a.wool(0.165, 0.07, 0.175, 0, -0.46, 0, COL.knitRib);
+    a.wool(ball(0.088, 10, 6), 0.4, 0.3, -0.01 * s, -0.03, 0, COL.knit);
+    a.wool(capsule(0.085, 0.32), 0.5, 0.5, 0, -0.24, 0, COL.knit);
+    a.wool(new THREE.CylinderGeometry(0.09, 0.088, 0.07, 10), 0.5, 0.1, 0, -0.45, 0, COL.knitRib);
     a.into(pivot, mats);
     const hand = new Part();
-    hand.box(0.12, 0.13, 0.13, 0, 0, 0, COL.skin);
+    hand.add(ball(0.07, 8, 6), 0, 0, 0.005, COL.skin, { sx: 0.85, sz: 0.95 });
     const handGroup = new THREE.Group();
-    handGroup.position.y = -0.54;
+    handGroup.position.y = -0.53;
     hand.into(handGroup, mats);
     pivot.add(handGroup);
     hands.push(handGroup);

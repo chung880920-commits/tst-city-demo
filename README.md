@@ -11,8 +11,10 @@ find three glowing treasure points, and get a completion card at the end.
 - **Feel:** chase camera with smooth follow, auto-recentres behind you, and pulls
   in when a building gets between it and the player. Warm late-afternoon light,
   shadows, a rotating circular minimap with landmark markers, walk / run / jump.
-- **Player:** a chunky low-poly avatar of the founder, built in code from boxes,
-  with a cable-knit cardigan texture, hands-in-pockets idle and procedural walk/run/jump.
+- **Player:** a rounded, stylised low-poly avatar of the founder (~7k triangles), built in
+  code from spheres, capsules and bevelled boxes: softer jaw, slicked-back hair swoop
+  with short faded sides, cable-knit shawl-collar cardigan, white tee, dark trousers,
+  hands-in-pockets idle and procedural walk/run/jump.
   The HUD portrait and title image are rendered from the same model at startup.
 - **UI:** Traditional Chinese (Hong Kong Cantonese), navy `#0B1F3A` + gold `#F5C542`,
   large type (≥ 18 px body on mobile) and large touch targets.

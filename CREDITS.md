@@ -11,7 +11,7 @@
 ## 3D models, textures, fonts and audio
 
 **None imported.** All geometry is generated procedurally in `src/world.ts` and
-`src/avatar.ts` from primitive shapes (boxes, cylinders, cones). The cable-knit
+`src/avatar.ts` from primitive shapes (boxes, bevelled boxes, spheres, capsules, cylinders, cones). The cable-knit
 pattern, the sky, the water and all sign graphics are drawn at runtime with Canvas 2D
 or GLSL shaders written for this project. No Kenney, Quaternius or other third-party
 asset packs are used yet. If CC0 packs are added later, list them here with their source URL.

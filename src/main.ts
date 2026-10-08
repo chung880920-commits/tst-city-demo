@@ -323,7 +323,7 @@ function boot() {
       return;
     }
     const d = Math.round(Math.hypot(n.x - player.pos.x, n.z - player.pos.z));
-    objective.innerHTML = `<small>下一站</small>${n.name} · ${d} 米`;
+    objective.innerHTML = `<small>下一站</small><span class="obj-name">${n.name}</span><span class="obj-dist">${d} 米</span>`;
   };
 
   const updateCount = () => {
