@@ -178,6 +178,7 @@ h1 span {
   max-width: 60vw;
 }
 .objective:empty { display: none; }
+.objective small { display: block; font-size: 0.85rem; color: var(--gold); letter-spacing: 0.1em; }
 
 .minimap-wrap {
   position: absolute;
@@ -282,8 +283,9 @@ h1 span {
   right: calc(24px + env(safe-area-inset-right));
   bottom: calc(28px + env(safe-area-inset-bottom));
   display: flex;
-  gap: 18px;
-  align-items: flex-end;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
 }
 .act-btn {
   font: inherit;
@@ -297,7 +299,7 @@ h1 span {
   color: var(--gold);
   touch-action: none;
 }
-#jump-btn { width: 112px; height: 112px; margin-bottom: 40px; }
+#jump-btn { width: 112px; height: 112px; }
 .act-btn.active { background: var(--gold); color: var(--navy); }
 
 /* ---------- Modals ---------- */
@@ -309,6 +311,7 @@ h1 span {
   padding: 20px;
   background: rgba(5, 14, 28, 0.55);
   z-index: 30;
+  overflow-y: auto;
   animation: fade 0.25s ease;
 }
 .card {
@@ -382,7 +385,18 @@ h1 span {
 @media (max-height: 520px) {
   .joy-base { width: 140px; height: 140px; }
   .act-btn { width: 84px; height: 84px; }
-  #jump-btn { width: 96px; height: 96px; margin-bottom: 24px; }
+  #jump-btn { width: 96px; height: 96px; }
+  .action-btns { flex-direction: row; align-items: flex-end; }
+  #jump-btn { margin-bottom: 28px; }
   .title-portrait { display: none; }
   .howto { margin-top: 12px; }
+  .lead { margin-bottom: 14px; }
+  .card { padding: 18px 22px; }
+  .card h2 { margin: 4px 0 8px; }
+  .badge, .complete-portrait { display: none; }
+  .done-list { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; font-size: 1.1rem; }
+  .card-complete .progress { font-size: 2rem; margin: 0 0 10px; }
+  .placeholder { padding: 12px; margin: 8px 0 10px; }
+  .progress { margin-bottom: 12px; }
+  .btn-xl { min-height: 60px; font-size: 1.3rem; }
 }

@@ -8,8 +8,8 @@ const COL = {
   hairHi: '#2c2c34',
   fade: '#5a4c44',
   tee: '#f7f5ef',
-  knit: '#e2d4b8',
-  knitRib: '#cdbd9f',
+  knit: '#ece2cf',
+  knitRib: '#ddd0b8',
   trousers: '#2a2e3a',
   shoe: '#1c1c21',
   sole: '#3a3a40',
@@ -137,7 +137,7 @@ export function createAvatar(): Avatar {
     t.wool(0.1, 0.46, 0.09, 0.125 * s, 1.06, 0.19, COL.knitRib, { rz: -0.26 * s });
     t.wool(0.1, 0.16, 0.24, 0.16 * s, 1.3, 0.03, COL.knitRib);
     // patch pockets
-    t.wool(0.16, 0.16, 0.05, 0.19 * s, 0.74, 0.19, COL.knitRib);
+    t.wool(0.15, 0.17, 0.05, 0.2 * s, 0.73, 0.19, COL.knitRib);
   }
   t.wool(0.56, 0.08, 0.34, 0, 1.27, 0, COL.knit);
   t.wool(0.4, 0.14, 0.12, 0, 1.31, -0.1, COL.knitRib);
@@ -150,8 +150,7 @@ export function createAvatar(): Avatar {
   head.position.set(0, 1.36, 0);
   body.add(head);
   const h = new Part();
-  h.box(0.6, 0.48, 0.54, 0, 0.32, 0, COL.skin);
-  h.box(0.5, 0.12, 0.47, 0, 0.06, 0.01, COL.skin);
+  h.box(0.6, 0.54, 0.54, 0, 0.29, 0, COL.skin);
   for (const s of [1, -1]) {
     h.box(0.07, 0.15, 0.11, 0.32 * s, 0.3, -0.02, COL.skinShade);
     h.box(0.075, 0.1, 0.03, 0.13 * s, 0.3, 0.27, COL.eye);
@@ -175,14 +174,21 @@ export function createAvatar(): Avatar {
 
   // ---- arms
   const arms: THREE.Group[] = [];
+  const hands: THREE.Group[] = [];
   for (const s of [1, -1]) {
     const pivot = new THREE.Group();
     pivot.position.set(0.335 * s, 1.22, 0);
     const a = new Part();
     a.wool(0.16, 0.5, 0.17, 0, -0.23, 0, COL.knit);
     a.wool(0.165, 0.07, 0.175, 0, -0.46, 0, COL.knitRib);
-    a.box(0.12, 0.13, 0.13, 0, -0.54, 0, COL.skin);
     a.into(pivot, mats);
+    const hand = new Part();
+    hand.box(0.12, 0.13, 0.13, 0, 0, 0, COL.skin);
+    const handGroup = new THREE.Group();
+    handGroup.position.y = -0.54;
+    hand.into(handGroup, mats);
+    pivot.add(handGroup);
+    hands.push(handGroup);
     body.add(pivot);
     arms.push(pivot);
   }
@@ -203,13 +209,14 @@ export function createAvatar(): Avatar {
     legs[1].rotation.x = -sw * amp * (1 - air) + air * 0.35;
 
     // idle: hands tucked into the cardigan pockets, like the photo
-    const idleX = -0.27;
-    const idleZ = 0.2;
+    const idleX = -0.2;
+    const idleZ = 0.12;
     for (let i = 0; i < 2; i++) {
       const s = i === 0 ? 1 : -1;
       const swing = -sw * s * amp * 0.95;
       arms[i].rotation.x = idleX * (1 - walk) + swing * walk - air * 0.5;
       arms[i].rotation.z = s * (idleZ * (1 - walk) - 0.08 * walk) * -1 + s * air * 0.5;
+      hands[i].scale.setScalar(Math.max(0.01, Math.min(1, walk * 3 + air)));
     }
     const bob = Math.abs(Math.cos(phase)) * 0.05 * walk;
     const breathe = Math.sin(time * 2.2) * 0.006 * (1 - walk);
@@ -225,14 +232,14 @@ export function createAvatar(): Avatar {
 }
 
 /** Renders the avatar once to an offscreen canvas for HUD/title portraits. */
-export function renderPortraits(): { head: string; bust: string } {
+export function renderPortraits(withFull = false): { head: string; bust: string; full?: string } {
   const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(1);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.NeutralToneMapping;
   const scene = new THREE.Scene();
-  scene.add(new THREE.HemisphereLight('#fff1e0', '#4a5a7a', 1.6));
-  const key = new THREE.DirectionalLight('#ffd2a0', 2.2);
+  scene.add(new THREE.HemisphereLight('#ffffff', '#56607a', 1.7));
+  const key = new THREE.DirectionalLight('#fff3e6', 1.9);
   key.position.set(2, 3, 4);
   scene.add(key);
   const rim = new THREE.DirectionalLight('#9fc4ff', 1.2);
@@ -242,9 +249,9 @@ export function renderPortraits(): { head: string; bust: string } {
   avatar.root.rotation.y = 0.35;
   scene.add(avatar.root);
 
-  const shot = (size: number, target: THREE.Vector3, dist: number, fov: number) => {
-    renderer.setSize(size, size, false);
-    const cam = new THREE.PerspectiveCamera(fov, 1, 0.05, 20);
+  const shot = (size: number, target: THREE.Vector3, dist: number, fov: number, aspect = 1) => {
+    renderer.setSize(size * aspect, size, false);
+    const cam = new THREE.PerspectiveCamera(fov, aspect, 0.05, 20);
     cam.position.set(target.x + 0.25, target.y + 0.12, target.z + dist);
     cam.lookAt(target);
     renderer.render(scene, cam);
@@ -252,7 +259,12 @@ export function renderPortraits(): { head: string; bust: string } {
   };
   const head = shot(256, new THREE.Vector3(0, 1.62, 0), 1.9, 30);
   const bust = shot(512, new THREE.Vector3(0, 1.3, 0), 3.0, 34);
+  let full: string | undefined;
+  if (withFull) {
+    avatar.root.rotation.y = 0.5;
+    full = shot(900, new THREE.Vector3(0, 0.98, 0), 4.6, 30, 0.8);
+  }
   renderer.dispose();
   renderer.forceContextLoss();
-  return { head, bust };
+  return { head, bust, full };
 }

@@ -177,7 +177,7 @@ function boot() {
     const orbit = input.consumeOrbit();
     const sens = input.isTouch ? 0.009 : 0.006;
     cam.yaw -= orbit.x * sens;
-    cam.pitch = THREE.MathUtils.clamp(cam.pitch + orbit.y * sens * 0.8, 0.05, 1.15);
+    cam.pitch = THREE.MathUtils.clamp(cam.pitch + orbit.y * sens * 0.8, -0.3, 1.15);
 
     const now = performance.now() / 1000;
     if (moving > 0.1 && now - input.lastOrbitAt > 1.4 && input.move.y > -0.3) {
@@ -323,7 +323,7 @@ function boot() {
       return;
     }
     const d = Math.round(Math.hypot(n.x - player.pos.x, n.z - player.pos.z));
-    objective.textContent = `下一站：${n.name} · ${d} 米`;
+    objective.innerHTML = `<small>下一站</small>${n.name} · ${d} 米`;
   };
 
   const updateCount = () => {
@@ -419,7 +419,8 @@ function boot() {
   };
 
   // ------------------------------------------------------------------ loop
-  const clock = new THREE.Clock();
+  const timer = new THREE.Timer();
+  timer.connect(document);
   let fpsFrames = 0;
   let fpsTime = 0;
   let fps = 0;
@@ -428,9 +429,10 @@ function boot() {
   const statsEl = $('stats');
   let freezeTitleCam = false;
 
-  const frame = () => {
-    const dt = Math.min(clock.getDelta(), 1 / 20);
-    const t = clock.elapsedTime;
+  const frame = (now?: number) => {
+    timer.update(now);
+    const dt = Math.min(timer.getDelta(), 1 / 20);
+    const t = timer.getElapsed();
 
     world.update(t);
     (water.uniforms.time as { value: number }).value = t;
@@ -503,6 +505,7 @@ function boot() {
   // Hooks for automated screenshots and debugging.
   (window as unknown as { __tst: unknown }).__tst = {
     start,
+    portraits: () => renderPortraits(true),
     teleport,
     unlock,
     setCam: (yaw: number, pitch: number, dist: number) => {
