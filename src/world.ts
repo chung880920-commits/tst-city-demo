@@ -441,7 +441,7 @@ export function buildWorld(): World {
   palm(CLOCK_TOWER.x + 8.5, CLOCK_TOWER.z - 4, 0.9);
   // street trees along Salisbury sidewalk
   for (let x = -88; x <= 88; x += 13) {
-    if (Math.abs(x - 35) < 8 || Math.abs(x + 56) < 8 || Math.abs(x + 9) < 4 || Math.abs(x - CLOCK_TOWER.x) < 5) continue;
+    if (Math.abs(x - 35) < 8 || Math.abs(x + 56) < 8 || Math.abs(x + 9) < 4 || Math.abs(x - CLOCK_TOWER.x) < 9) continue;
     solid.add(new THREE.CylinderGeometry(0.12, 0.18, 2.4, 5), C.trunk, { x, y: 1.2, z: 6.6 });
     solid.add(new THREE.IcosahedronGeometry(1.4, 0), C.leaf2, { x, y: 3.2, z: 6.6 });
     collide(x - 0.25, 6.35, x + 0.25, 6.85, 2.4);
