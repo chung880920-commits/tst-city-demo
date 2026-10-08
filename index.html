@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-Hant-HK">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#0B1F3A" />
+    <title>尖沙咀城市尋寶（試玩版）</title>
+  </head>
+  <body>
+    <canvas id="game" aria-label="尖沙咀 3D 場景"></canvas>
+
+    <section id="title-screen" class="screen">
+      <div class="title-card">
+        <img id="title-portrait" class="title-portrait" alt="玩家角色" />
+        <p class="kicker">香港 · 尖沙咀海旁</p>
+        <h1>尖沙咀城市尋寶<span>（試玩版）</span></h1>
+        <p class="lead">喺日落海旁行一圈，搵齊 3 個發光寶藏點。</p>
+        <button id="start-btn" class="btn btn-gold btn-xl" disabled>載入中…</button>
+        <ul class="howto">
+          <li class="touch-only">左下搖桿：行走　右下按鈕：跑／跳</li>
+          <li class="touch-only">拖曳畫面：轉視角</li>
+          <li class="desk-only">WASD／方向鍵：行走　Shift：跑</li>
+          <li class="desk-only">空白鍵：跳　滑鼠拖曳：轉視角</li>
+        </ul>
+      </div>
+    </section>
+
+    <div id="hud" hidden>
+      <div class="hud-player">
+        <img id="hud-portrait" alt="玩家頭像" />
+        <div>
+          <div class="hud-name">Anson</div>
+          <div class="hud-count"><span class="gem">◆</span> 寶藏 <b id="count">0</b>/3</div>
+        </div>
+      </div>
+      <div id="objective" class="objective"></div>
+      <div class="minimap-wrap">
+        <canvas id="minimap" width="400" height="400" aria-label="小地圖"></canvas>
+        <div class="compass" id="compass">北</div>
+      </div>
+      <button id="settings-btn" class="btn-icon" aria-label="設定">⚙</button>
+      <div id="zone-toast" class="zone-toast"></div>
+
+      <div id="joystick" class="joystick touch-only" aria-label="移動搖桿">
+        <div class="joy-base"><div class="joy-knob" id="joy-knob"></div></div>
+      </div>
+      <div class="action-btns touch-only">
+        <button id="run-btn" class="act-btn">跑</button>
+        <button id="jump-btn" class="act-btn">跳</button>
+      </div>
+    </div>
+
+    <div id="popup" class="modal" hidden>
+      <div class="card">
+        <div class="badge">◆</div>
+        <h2>已解鎖：<span id="popup-name"></span></h2>
+        <p class="placeholder">題目稍後加入</p>
+        <p class="progress">進度 <b id="popup-count">0</b>/3</p>
+        <button id="popup-ok" class="btn btn-gold btn-xl">繼續</button>
+      </div>
+    </div>
+
+    <div id="complete" class="modal" hidden>
+      <div class="card card-complete">
+        <img id="complete-portrait" class="complete-portrait" alt="" />
+        <h2>恭喜完成！</h2>
+        <p class="lead">你已搵齊尖沙咀 3 個寶藏點</p>
+        <ol class="done-list">
+          <li>✔ 尖沙咀鐘樓</li>
+          <li>✔ 天星碼頭</li>
+          <li>✔ 彌敦道街角</li>
+        </ol>
+        <p class="progress">3/3</p>
+        <div class="row">
+          <button id="complete-walk" class="btn btn-outline btn-xl">繼續行</button>
+          <button id="complete-restart" class="btn btn-gold btn-xl">再玩一次</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="settings" class="modal" hidden>
+      <div class="card">
+        <h2>設定</h2>
+        <p class="setting-label">畫質</p>
+        <div class="row seg" role="group" aria-label="畫質">
+          <button class="btn btn-seg" data-quality="low">流暢</button>
+          <button class="btn btn-seg" data-quality="high">高畫質</button>
+        </div>
+        <p class="stats" id="stats">— fps</p>
+        <button id="settings-close" class="btn btn-gold btn-xl">返回遊戲</button>
+      </div>
+    </div>
+
+    <div id="error" class="screen" hidden>
+      <div class="title-card">
+        <h1>無法載入</h1>
+        <p class="lead" id="error-msg">你部裝置或瀏覽器唔支援 WebGL，請試吓用最新版 Chrome 或 Safari。</p>
+      </div>
+    </div>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
