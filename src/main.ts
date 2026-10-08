@@ -1,14 +1,45 @@
 import * as THREE from 'three';
 import './style.css';
+import { Sound } from './audio';
 import { createAvatar, renderPortraits } from './avatar';
-import { createLights, createSky, createWater, FOG_COLOR, SUN_DIR } from './env';
+import { createLights, createSky, createTimeOfDay, createWater, FOG_COLOR, SUN_DIR } from './env';
+import { Burst, GuideLine, Navigator } from './guide';
 import { Input } from './input';
 import { Minimap } from './minimap';
 import { BOUNDS, buildWorld, CHECKPOINTS, CLOCK_TOWER, ZONES, type AABB } from './world';
 
-type Quality = 'low' | 'high';
+type Quality = 'ultra' | 'low' | 'high';
+const QUALITY_LABEL: Record<Quality, string> = { ultra: '省電', low: '流暢', high: '高畫質' };
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+
+const store = {
+  get(k: string) {
+    try {
+      return localStorage.getItem(k);
+    } catch {
+      return null;
+    }
+  },
+  set(k: string, v: string | null) {
+    try {
+      if (v === null) localStorage.removeItem(k);
+      else localStorage.setItem(k, v);
+    } catch {
+      /* private mode */
+    }
+  },
+};
+
+const PROGRESS_KEY = 'tst-progress-v1';
+interface Progress {
+  found: string[];
+  x: number;
+  z: number;
+  heading: number;
+}
+
+const IDLE_LINES = ['差少少啫，跟住金線行！', '下一站就喺前面，跟住金線行！', '加油！跟住地上金線就搵到！'];
 
 function fail(msg?: string) {
   $('title-screen').hidden = true;
@@ -39,16 +70,21 @@ function boot() {
 
   const scene = new THREE.Scene();
   scene.background = FOG_COLOR.clone();
-  scene.fog = new THREE.Fog(FOG_COLOR, 80, 1700);
+  scene.fog = new THREE.Fog(FOG_COLOR.clone(), 80, 1700);
   const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 3000);
 
-  scene.add(createSky());
+  const sky = createSky();
+  scene.add(sky);
   const water = createWater();
   scene.add(water.mesh);
-  const { sun } = createLights(scene);
+  const { sun, hemi } = createLights(scene);
   const world = buildWorld();
   scene.add(world.group);
   const colliders = world.colliders;
+  // The one extra real light: a warm street-lamp glow that follows the player at night.
+  const lamp = new THREE.PointLight('#ffc27a', 0, 22, 1.3);
+  scene.add(lamp);
+  const setTimeOfDay = createTimeOfDay({ scene, sky, water: water.uniforms, hemi, sun, lamp, mats: world.nightMats });
 
   // ---------------------------------------------------------------- player
   const avatar = createAvatar();
@@ -99,26 +135,40 @@ function boot() {
     scene.add(g);
     return { cp, g, ring, ringMat, beam, gem };
   });
+  const setCheckpointDone = (id: string, done: boolean) => {
+    const v = cpVisuals.find((c) => c.cp.id === id)!;
+    v.beam.visible = !done;
+    v.gem.visible = !done;
+    v.ringMat.color.set(done ? '#3fbf6a' : '#f5c542');
+  };
+
+  // ------------------------------------------------------------ guidance & fx
+  const nav = new Navigator(colliders.slice(0, world.staticCount));
+  const guide = new GuideLine();
+  scene.add(guide.mesh);
+  const burst = new Burst(140);
+  scene.add(burst.points);
 
   // -------------------------------------------------------------- systems
   const input = new Input(canvas);
   const minimap = new Minimap($<HTMLCanvasElement>('minimap'), world.map);
+  const sound = new Sound();
 
-  let quality: Quality = input.isTouch ? 'low' : 'high';
-  try {
-    const saved = localStorage.getItem('tst-quality');
-    if (saved === 'low' || saved === 'high') quality = saved;
-  } catch {
-    /* storage may be unavailable in private mode */
-  }
+  const savedQuality = store.get('tst-quality');
+  const manualQuality = savedQuality === 'ultra' || savedQuality === 'low' || savedQuality === 'high';
+  let quality: Quality = manualQuality ? (savedQuality as Quality) : input.isTouch ? 'low' : 'high';
+  const auto = { active: !manualQuality, start: 0, frames: 0, rounds: 0, fps: 0, decided: '' };
 
   const applyQuality = () => {
     const dpr = window.devicePixelRatio || 1;
-    renderer.setPixelRatio(quality === 'high' ? Math.min(dpr, 2) : Math.min(dpr, 1.25));
+    const pr = quality === 'high' ? Math.min(dpr, 2) : quality === 'low' ? Math.min(dpr, 1.25) : Math.max(0.6, Math.min(dpr, 1) * 0.75);
+    renderer.setPixelRatio(pr);
     const shadows = quality === 'high';
-    if (renderer.shadowMap.enabled !== shadows) {
+    const lampOn = quality !== 'ultra';
+    if (renderer.shadowMap.enabled !== shadows || lamp.visible !== lampOn) {
       renderer.shadowMap.enabled = shadows;
       sun.castShadow = shadows;
+      lamp.visible = lampOn;
       scene.traverse((o) => {
         const m = (o as THREE.Mesh).material as THREE.Material | undefined;
         if (m) m.needsUpdate = true;
@@ -148,6 +198,9 @@ function boot() {
     dist: 7,
     cur: 7,
     focus: player.pos.clone().add(new THREE.Vector3(0, 1.45, 0)),
+    /** 0..1 blend toward the close-up "reward" framing in front of the player. */
+    push: 0,
+    pushTarget: 0,
   };
 
   const rayBox = (o: THREE.Vector3, d: THREE.Vector3, b: AABB, maxT: number) => {
@@ -172,6 +225,7 @@ function boot() {
     return tmin;
   };
 
+  const angleTo = (from: number, to: number) => Math.atan2(Math.sin(to - from), Math.cos(to - from));
   const tmpDir = new THREE.Vector3();
   const updateCamera = (dt: number, moving: number) => {
     const orbit = input.consumeOrbit();
@@ -179,18 +233,21 @@ function boot() {
     cam.yaw -= orbit.x * sens;
     cam.pitch = THREE.MathUtils.clamp(cam.pitch + orbit.y * sens * 0.8, -0.3, 1.15);
 
+    cam.push += (cam.pushTarget - cam.push) * Math.min(1, dt * 3.5);
     const now = performance.now() / 1000;
-    if (moving > 0.1 && now - input.lastOrbitAt > 1.4 && input.move.y > -0.3) {
-      const target = player.heading + Math.PI;
-      const diff = Math.atan2(Math.sin(target - cam.yaw), Math.cos(target - cam.yaw));
-      cam.yaw += diff * Math.min(1, dt * 1.6 * moving);
+    if (cam.pushTarget > 0) {
+      // swing round to face the cheering avatar
+      cam.yaw += angleTo(cam.yaw, player.heading + 0.35) * Math.min(1, dt * 3);
+    } else if (moving > 0.1 && now - input.lastOrbitAt > 1.4 && input.move.y > -0.3) {
+      cam.yaw += angleTo(cam.yaw, player.heading + Math.PI) * Math.min(1, dt * 1.6 * moving);
     }
 
-    const goal = tmpDir.set(player.pos.x, player.pos.y + 1.75, player.pos.z);
+    const goal = tmpDir.set(player.pos.x, player.pos.y + 1.75 - cam.push * 0.5, player.pos.z);
     cam.focus.lerp(goal, Math.min(1, dt * 14));
 
-    const dir = new THREE.Vector3(Math.sin(cam.yaw) * Math.cos(cam.pitch), Math.sin(cam.pitch), Math.cos(cam.yaw) * Math.cos(cam.pitch));
-    const desired = cam.dist * (camera.aspect < 1 ? 1.15 : 1);
+    const pitch = THREE.MathUtils.lerp(cam.pitch, 0.16, cam.push);
+    const dir = new THREE.Vector3(Math.sin(cam.yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(cam.yaw) * Math.cos(pitch));
+    const desired = cam.dist * (camera.aspect < 1 ? 1.15 : 1) * (1 - 0.55 * cam.push);
     let hit = desired;
     for (const c of colliders) {
       const t = rayBox(cam.focus, dir, c, desired + 0.5);
@@ -299,7 +356,8 @@ function boot() {
   for (const id of ['title-portrait', 'complete-portrait']) $<HTMLImageElement>(id).src = portraits.bust;
   $<HTMLImageElement>('hud-portrait').src = portraits.head;
 
-  let state: 'title' | 'play' | 'modal' = 'title';
+  type State = 'title' | 'play' | 'reward' | 'modal';
+  let state: State = 'title';
   const startBtn = $<HTMLButtonElement>('start-btn');
   startBtn.disabled = false;
   startBtn.textContent = '開始';
@@ -312,6 +370,14 @@ function boot() {
     zoneToast.classList.add('show');
     window.clearTimeout(toastTimer);
     toastTimer = window.setTimeout(() => zoneToast.classList.remove('show'), 2600);
+  };
+  const toast = $('toast');
+  let toastTimer2 = 0;
+  const showToast = (msg: string) => {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    window.clearTimeout(toastTimer2);
+    toastTimer2 = window.setTimeout(() => toast.classList.remove('show'), 3500);
   };
 
   const nextCheckpoint = () => CHECKPOINTS.find((c) => !found.has(c.id)) ?? null;
@@ -331,67 +397,150 @@ function boot() {
     $('popup-count').textContent = String(found.size);
   };
 
+  // ------------------------------------------------------------- progress
+  const saveProgress = () => {
+    const p: Progress = { found: [...found], x: player.pos.x, z: player.pos.z, heading: player.heading };
+    store.set(PROGRESS_KEY, JSON.stringify(p));
+  };
+  const loadProgress = () => {
+    try {
+      const raw = store.get(PROGRESS_KEY);
+      if (!raw) return;
+      const p = JSON.parse(raw) as Progress;
+      for (const id of p.found ?? []) {
+        if (CHECKPOINTS.some((c) => c.id === id)) {
+          found.add(id);
+          setCheckpointDone(id, true);
+        }
+      }
+      if (Number.isFinite(p.x) && Number.isFinite(p.z) && !nav.blocked({ x: p.x, z: p.z })) {
+        player.pos.set(THREE.MathUtils.clamp(p.x, BOUNDS.minX, BOUNDS.maxX), BASE_Y, THREE.MathUtils.clamp(p.z, BOUNDS.minZ, BOUNDS.maxZ));
+        player.heading = Number.isFinite(p.heading) ? p.heading : player.heading;
+      }
+      const note = $('resume-note');
+      note.hidden = false;
+      note.textContent = found.size === CHECKPOINTS.length ? '已完成全部寶藏，可以繼續周圍行' : `已保存進度：${found.size}/${CHECKPOINTS.length}，撳開始繼續`;
+    } catch {
+      store.set(PROGRESS_KEY, null);
+    }
+  };
+  loadProgress();
+  updateCount();
+
+  // --------------------------------------------------------------- modals
   const openModal = (id: string) => {
     state = 'modal';
     input.enabled = false;
     input.reset();
     $(id).hidden = false;
-    const btn = $(id).querySelector('button');
-    btn?.focus({ preventScroll: true });
+    $(id).querySelector('button')?.focus({ preventScroll: true });
   };
   const closeModal = (id: string) => {
     $(id).hidden = true;
     state = 'play';
     input.enabled = true;
+    cam.pushTarget = 0;
     canvas.focus({ preventScroll: true });
   };
 
+  let rewardTimer = 0;
   const unlock = (id: string) => {
     if (found.has(id)) return;
     found.add(id);
     const v = cpVisuals.find((c) => c.cp.id === id)!;
-    v.beam.visible = false;
-    v.gem.visible = false;
-    v.ringMat.color.set('#3fbf6a');
+    setCheckpointDone(id, true);
     updateCount();
+    saveProgress();
     $('popup-name').textContent = v.cp.name;
-    openModal('popup');
-    if (navigator.vibrate) navigator.vibrate(60);
+
+    state = 'reward';
+    input.enabled = false;
+    input.reset();
+    player.vel.set(0, 0, 0);
+    burst.fire(player.pos.x, 1.3, player.pos.z, quality === 'ultra' ? 60 : 140);
+    avatar.cheer(1.9);
+    cam.pushTarget = 1;
+    sound.chime();
+    if (navigator.vibrate) navigator.vibrate([40, 30, 90]);
+    window.clearTimeout(rewardTimer);
+    rewardTimer = window.setTimeout(() => openModal('popup'), 1500);
+  };
+
+  const resetProgress = () => {
+    found.clear();
+    for (const v of cpVisuals) setCheckpointDone(v.cp.id, false);
+    updateCount();
+    store.set(PROGRESS_KEY, null);
+    teleport(SPAWN.x, SPAWN.z, SPAWN.heading);
   };
 
   $('popup-ok').addEventListener('click', () => {
     closeModal('popup');
-    if (found.size === CHECKPOINTS.length) openModal('complete');
+    if (found.size === CHECKPOINTS.length) {
+      sound.jingle();
+      burst.fire(player.pos.x, 1.3, player.pos.z, quality === 'ultra' ? 60 : 140);
+      if (navigator.vibrate) navigator.vibrate([60, 40, 60, 40, 120]);
+      openModal('complete');
+    }
   });
   $('complete-walk').addEventListener('click', () => closeModal('complete'));
   $('complete-restart').addEventListener('click', () => {
-    found.clear();
-    for (const v of cpVisuals) {
-      v.beam.visible = true;
-      v.gem.visible = true;
-      v.ringMat.color.set('#f5c542');
-    }
-    updateCount();
-    teleport(SPAWN.x, SPAWN.z, SPAWN.heading);
+    resetProgress();
     closeModal('complete');
   });
+  $('reset-progress').addEventListener('click', () => {
+    resetProgress();
+    closeModal('settings');
+    showToast('已重新開始尋寶');
+  });
 
+  const qualityNote = $('quality-note');
   $('settings-btn').addEventListener('click', () => openModal('settings'));
   $('settings-close').addEventListener('click', () => closeModal('settings'));
   document.querySelectorAll<HTMLButtonElement>('[data-quality]').forEach((b) =>
     b.addEventListener('click', () => {
       quality = b.dataset.quality as Quality;
-      try {
-        localStorage.setItem('tst-quality', quality);
-      } catch {
-        /* ignore */
-      }
+      auto.active = false;
+      store.set('tst-quality', quality);
+      qualityNote.textContent = `已手動設定：${QUALITY_LABEL[quality]}`;
       applyQuality();
     }),
   );
 
+  // ----------------------------------------------------------- sound & night
+  const muteBtn = $('mute-btn');
+  const syncMute = () => {
+    muteBtn.setAttribute('aria-pressed', String(sound.muted));
+    muteBtn.setAttribute('aria-label', sound.muted ? '聲音：關' : '聲音：開');
+  };
+  syncMute();
+  muteBtn.addEventListener('click', () => {
+    sound.unlock();
+    sound.setMuted(!sound.muted);
+    syncMute();
+    showToast(sound.muted ? '已靜音' : '已開聲');
+  });
+
+  let nightTarget = store.get('tst-night') === '1' ? 1 : 0;
+  let nightK = nightTarget;
+  setTimeOfDay(nightK);
+  const nightBtn = $('night-btn');
+  const syncNight = () => {
+    nightBtn.setAttribute('aria-pressed', String(nightTarget === 1));
+    nightBtn.setAttribute('aria-label', nightTarget ? '切換日落' : '切換夜景');
+  };
+  syncNight();
+  nightBtn.addEventListener('click', () => {
+    nightTarget = nightTarget ? 0 : 1;
+    store.set('tst-night', String(nightTarget));
+    syncNight();
+    showToast(nightTarget ? '入夜喇，霓虹燈著晒！' : '返去日落時分');
+  });
+
+  // ------------------------------------------------------------------ start
   const start = () => {
     if (state !== 'title') return;
+    sound.unlock();
     $('title-screen').hidden = true;
     $('hud').hidden = false;
     state = 'play';
@@ -401,6 +550,8 @@ function boot() {
     canvas.tabIndex = 0;
     canvas.focus({ preventScroll: true });
     currentZone = '';
+    lastMoveAt = performance.now();
+    if (found.size === CHECKPOINTS.length) showToast('全部寶藏已搵齊，隨便行吓！');
   };
   startBtn.addEventListener('click', start);
   window.addEventListener('keydown', (e) => {
@@ -418,6 +569,84 @@ function boot() {
     cam.focus.set(x, BASE_Y + 1.45, z);
   };
 
+  // ------------------------------------------------------------ idle hint
+  const bubble = $('bubble');
+  let lastMoveAt = performance.now();
+  let hintShown = false;
+  const headPos = new THREE.Vector3();
+  const IDLE_SECONDS = 15;
+  const updateIdleHint = (moving: boolean) => {
+    const now = performance.now();
+    if (moving || state !== 'play' || !nextCheckpoint()) lastMoveAt = now;
+    const show = state === 'play' && now - lastMoveAt > IDLE_SECONDS * 1000;
+    if (show && !hintShown) {
+      bubble.textContent = IDLE_LINES[Math.floor(Math.random() * IDLE_LINES.length)];
+      bubble.hidden = false;
+      objective.classList.add('pulse');
+    } else if (!show && hintShown) {
+      bubble.hidden = true;
+      objective.classList.remove('pulse');
+    }
+    hintShown = show;
+    if (show) {
+      headPos.set(player.pos.x, player.pos.y + 2.45, player.pos.z).project(camera);
+      bubble.style.left = `${((headPos.x + 1) / 2) * window.innerWidth}px`;
+      bubble.style.top = `${((1 - headPos.y) / 2) * window.innerHeight}px`;
+    }
+  };
+
+  // ----------------------------------------------------------------- guide
+  let guideTimer = 0;
+  let guideFade = 0;
+  const updateGuide = (dt: number, t: number) => {
+    const target = nextCheckpoint();
+    const visible = !!target && (state === 'play' || state === 'reward');
+    guideFade += ((visible && state === 'play' ? 1 : 0) - guideFade) * Math.min(1, dt * 4);
+    guide.mesh.visible = guideFade > 0.02;
+    guide.uniforms.time.value = t;
+    guide.uniforms.opacity.value = guideFade;
+    guide.uniforms.pulse.value = hintShown ? 0.5 + 0.5 * Math.sin(t * 6) : 0;
+    guideTimer -= dt;
+    if (target && guideTimer <= 0) {
+      guideTimer = 0.4;
+      guide.set(nav.path({ x: player.pos.x, z: player.pos.z }, { x: target.x, z: target.z }));
+    }
+  };
+
+  // ----------------------------------------------------------- auto quality
+  const updateAutoQuality = (now: number) => {
+    if (!auto.active) return;
+    if (!auto.start) {
+      auto.start = now + 1500;
+      return;
+    }
+    if (now < auto.start) return;
+    auto.frames++;
+    const secs = (now - auto.start) / 1000;
+    if (secs < 3.5) return;
+    auto.fps = Math.round(auto.frames / secs);
+    auto.rounds++;
+    let next: Quality = quality;
+    if (auto.fps < 28) next = 'ultra';
+    else if (auto.fps < 45 && quality === 'high') next = 'low';
+    if (next !== quality) {
+      quality = next;
+      applyQuality();
+      auto.decided = `${auto.fps} fps → ${QUALITY_LABEL[quality]}`;
+      qualityNote.textContent = `自動偵測：${auto.decided}`;
+      showToast(`已自動調整畫質：${QUALITY_LABEL[quality]}`);
+    } else {
+      auto.decided = `${auto.fps} fps → 保持${QUALITY_LABEL[quality]}`;
+      qualityNote.textContent = `自動偵測：${auto.decided}`;
+    }
+    if (next === 'ultra' || auto.rounds >= 2 || next === quality) {
+      auto.active = auto.rounds < 2 && next !== 'ultra' && quality !== 'high' && auto.fps < 45;
+    }
+    auto.start = now + 800;
+    auto.frames = 0;
+  };
+  if (manualQuality) qualityNote.textContent = `已手動設定：${QUALITY_LABEL[quality]}`;
+
   // ------------------------------------------------------------------ loop
   const timer = new THREE.Timer();
   timer.connect(document);
@@ -426,13 +655,22 @@ function boot() {
   let fps = 0;
   let zoneCheck = 0;
   let hudTick = 0;
+  let ambTick = 0;
+  let saveTick = 0;
   const statsEl = $('stats');
   let freezeTitleCam = false;
+  const focusV = new THREE.Vector3();
 
   const frame = (now?: number) => {
     timer.update(now);
     const dt = Math.min(timer.getDelta(), 1 / 20);
     const t = timer.getElapsed();
+    updateAutoQuality(performance.now());
+
+    if (Math.abs(nightK - nightTarget) > 0.001) {
+      nightK += Math.sign(nightTarget - nightK) * Math.min(Math.abs(nightTarget - nightK), dt * 0.4);
+      setTimeOfDay(nightK);
+    }
 
     world.update(t);
     (water.uniforms.time as { value: number }).value = t;
@@ -442,6 +680,7 @@ function boot() {
       v.gem.position.y = 2.3 + Math.sin(t * 2.4) * 0.25;
       v.ring.scale.setScalar(1 + Math.sin(t * 3) * 0.04);
     }
+    burst.update(dt);
 
     if (state === 'title') {
       if (!freezeTitleCam) {
@@ -449,20 +688,28 @@ function boot() {
         camera.position.set(CLOCK_TOWER.x + Math.sin(a) * 40, 9 + Math.sin(t * 0.2) * 2, CLOCK_TOWER.z + 6 + Math.cos(a) * 40);
         camera.lookAt(CLOCK_TOWER.x, 12, CLOCK_TOWER.z);
       }
+      avatar.root.position.copy(player.pos);
+      avatar.root.rotation.y = player.heading;
       avatar.update(dt, t, 0, false, false);
+      guide.mesh.visible = false;
     } else {
       const res = state === 'play' ? stepPlayer(dt) : { move: 0, running: false };
-      if (state !== 'play') {
-        player.vel.multiplyScalar(0.8);
-        input.poll();
-      }
-      avatar.update(dt, t, res.move, res.running, !player.grounded);
+      if (state !== 'play') input.poll();
+      const stepped = avatar.update(dt, t, res.move, res.running, !player.grounded);
+      if (stepped) sound.step(res.running);
       updateCamera(dt, res.move);
+      updateIdleHint(res.move > 0.05 || !player.grounded || Math.hypot(input.move.x, input.move.y) > 0.05);
+      updateGuide(dt, t);
 
       if (state === 'play') {
         for (const v of cpVisuals) {
           if (found.has(v.cp.id)) continue;
           if (Math.hypot(player.pos.x - v.cp.x, player.pos.z - v.cp.z) < 2.6) unlock(v.cp.id);
+        }
+        saveTick -= dt;
+        if (saveTick <= 0) {
+          saveTick = 3;
+          saveProgress();
         }
       }
       zoneCheck -= dt;
@@ -479,12 +726,18 @@ function boot() {
         hudTick = 0.25;
         updateObjective();
       }
+      ambTick -= dt;
+      if (ambTick <= 0) {
+        ambTick = 0.5;
+        sound.updateAmbience(player.pos.z, nightK);
+      }
       minimap.draw(player.pos.x, player.pos.z, player.heading, cam.yaw, CHECKPOINTS, found, nextCheckpoint()?.id ?? null, t);
     }
 
-    const focus = state === 'title' ? new THREE.Vector3(CLOCK_TOWER.x, 0, CLOCK_TOWER.z) : player.pos;
+    const focus = state === 'title' ? focusV.set(CLOCK_TOWER.x, 0, CLOCK_TOWER.z) : player.pos;
     sun.target.position.set(focus.x, 0, focus.z);
     sun.position.set(focus.x + SUN_DIR.x * 90, SUN_DIR.y * 90 + 20, focus.z + SUN_DIR.z * 90);
+    lamp.position.set(player.pos.x - 1.5, player.pos.y + 4.5, player.pos.z + 1.5);
 
     renderer.render(scene, camera);
 
@@ -499,7 +752,6 @@ function boot() {
     }
     requestAnimationFrame(frame);
   };
-  updateCount();
   requestAnimationFrame(frame);
 
   // Hooks for automated screenshots and debugging.
@@ -522,8 +774,35 @@ function boot() {
     },
     setQuality: (q: Quality) => {
       quality = q;
+      auto.active = false;
       applyQuality();
     },
-    info: () => ({ fps, ...renderer.info.render, pos: player.pos.toArray(), heading: player.heading }),
+    setNight: (on: boolean, instant = false) => {
+      nightTarget = on ? 1 : 0;
+      if (instant) {
+        nightK = nightTarget;
+        setTimeOfDay(nightK);
+      }
+      syncNight();
+    },
+    info: () => ({
+      fps,
+      ...renderer.info.render,
+      pos: player.pos.toArray(),
+      heading: player.heading,
+      state,
+      found: [...found],
+      quality,
+      auto: { active: auto.active, fps: auto.fps, decided: auto.decided },
+      night: nightK,
+      audio: sound.state,
+      muted: sound.muted,
+      masterGain: sound.masterGain,
+      guideSegments: guide.segments,
+      guideVisible: guide.mesh.visible,
+      bubble: !bubble.hidden ? bubble.textContent : null,
+      pixelRatio: renderer.getPixelRatio(),
+      shadows: renderer.shadowMap.enabled,
+    }),
   };
 }

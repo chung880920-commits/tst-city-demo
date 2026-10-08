@@ -109,6 +109,10 @@ export interface World {
   group: THREE.Group;
   colliders: AABB[];
   map: MapShape[];
+  /** Number of colliders that never move (traffic colliders follow them). */
+  staticCount: number;
+  /** Self-lit materials whose brightness follows the time of day. */
+  nightMats: { windows: THREE.MeshBasicMaterial; skyline: THREE.MeshBasicMaterial; skylineWin: THREE.MeshBasicMaterial; signs: THREE.MeshBasicMaterial; glow: THREE.MeshBasicMaterial };
   update: (t: number) => void;
 }
 
@@ -122,6 +126,8 @@ export function buildWorld(): World {
   const solid = new MeshBuilder();
   const glow = new MeshBuilder();
   const far = new MeshBuilder();
+  const farWin = new MeshBuilder();
+  const nightWin = new MeshBuilder();
   const signs = new SignAtlas();
 
   const collide = (minX: number, minZ: number, maxX: number, maxZ: number, h: number) =>
@@ -201,8 +207,9 @@ export function buildWorld(): World {
     // ribbon windows
     const band = rng() < 0.5 ? 1.3 : 1.6;
     for (let y = 5.2; y < h - 1.2; y += 3) {
-      const lit = rng() < 0.16;
-      (lit ? glow : solid).block(x0 - 0.06, z0 - 0.06, x1 + 0.06, z1 + 0.06, y, y + band, lit ? '#ffcf86' : C.glass);
+      const r = rng();
+      const lit = r < 0.12;
+      (lit ? glow : r < 0.45 ? nightWin : solid).block(x0 - 0.06, z0 - 0.06, x1 + 0.06, z1 + 0.06, y, y + band, lit ? '#ffcf86' : r < 0.45 ? '#ffffff' : C.glass);
     }
     solid.block(x0 - 0.15, z0 - 0.15, x1 + 0.15, z1 + 0.15, h, h + 0.5, shade(color, 0.8));
     if (!detail) return;
@@ -455,7 +462,7 @@ export function buildWorld(): World {
   buildPier(solid, glow, signs, collide, mapRect);
 
   // ------------------------------------------------------ distant skyline
-  buildSkyline(far, rng);
+  buildSkyline(far, farWin, rng);
 
   // ---------------------------------------------------- traffic (dynamic)
   const traffic = buildTraffic(rng);
@@ -468,17 +475,26 @@ export function buildWorld(): World {
   const solidMesh = solid.build(lambertV, 'solid');
   solidMesh.castShadow = true;
   solidMesh.receiveShadow = true;
-  const glowMesh = glow.build(new THREE.MeshBasicMaterial({ vertexColors: true }), 'glow');
-  const farMesh = far.build(new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }), 'skyline');
+  const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true });
+  const glowMesh = glow.build(glowMat, 'glow');
+  const windowsMat = new THREE.MeshBasicMaterial({ vertexColors: true });
+  const windowsMesh = nightWin.build(windowsMat, 'night-windows');
+  const skylineMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  const farMesh = far.build(skylineMat, 'skyline');
+  const skylineWinMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  const farWinMesh = farWin.build(skylineWinMat, 'skyline-windows');
   const signMesh = signs.build();
-  group.add(groundMesh, solidMesh, glowMesh, farMesh, signMesh);
+  group.add(groundMesh, solidMesh, glowMesh, windowsMesh, farMesh, farWinMesh, signMesh);
 
+  const staticCount = colliders.length;
   colliders.push(...traffic.colliders);
 
   return {
     group,
     colliders,
     map,
+    staticCount,
+    nightMats: { windows: windowsMat, skyline: skylineMat, skylineWin: skylineWinMat, signs: signMesh.material as THREE.MeshBasicMaterial, glow: glowMat },
     update: (t: number) => traffic.update(t),
   };
 }
@@ -633,7 +649,7 @@ function buildPier(
   mapRect('boat', fx - B / 2, fz - L / 2, fx + B / 2, fz + L / 2);
 }
 
-function buildSkyline(far: MeshBuilder, rng: () => number) {
+function buildSkyline(far: MeshBuilder, farWin: MeshBuilder, rng: () => number) {
   // Kowloon-side far towers are omitted; this is the island across the water.
   const ridge = (z: number, base: number, amp: number, color: string, seed: number) => {
     const pts: number[] = [];
@@ -680,7 +696,7 @@ function buildSkyline(far: MeshBuilder, rng: () => number) {
     for (let r = 1; r < rows; r++) {
       if (rng() < 0.45) continue;
       const wx = x + 1.5 + rng() * (w - 4);
-      far.add(winGeo, rng() < 0.3 ? '#ffe7a8' : '#ffc777', { x: wx, y: r * 12, z: z - 0.3, ry: Math.PI, sx: 3 + rng() * 5, sy: 2.4 });
+      farWin.add(winGeo, rng() < 0.3 ? '#ffe7a8' : '#ffc777', { x: wx, y: r * 12, z: z - 0.3, ry: Math.PI, sx: 3 + rng() * 5, sy: 2.4 });
     }
     x += w + 3 + rng() * 14;
   }

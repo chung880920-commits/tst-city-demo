@@ -146,7 +146,9 @@ class Part {
 
 export interface Avatar {
   root: THREE.Group;
-  update: (dt: number, t: number, move: number, running: boolean, airborne: boolean) => void;
+  /** Returns true on the frame a foot hits the ground. */
+  update: (dt: number, t: number, move: number, running: boolean, airborne: boolean) => boolean;
+  cheer: (seconds?: number) => void;
 }
 
 export function createAvatar(): Avatar {
@@ -242,16 +244,22 @@ export function createAvatar(): Avatar {
   let walk = 0;
   let runK = 0;
   let air = 0;
+  let cheerT = 0;
+  let cheerK = 0;
+  let lastStep = 0;
   const update = (dt: number, time: number, move: number, running: boolean, airborne: boolean) => {
     walk += (Math.min(move, 1) - walk) * Math.min(1, dt * 10);
     runK += ((running && move > 0.1 ? 1 : 0) - runK) * Math.min(1, dt * 6);
     air += ((airborne ? 1 : 0) - air) * Math.min(1, dt * 12);
+    cheerT = Math.max(0, cheerT - dt);
+    cheerK += ((cheerT > 0 ? 1 : 0) - cheerK) * Math.min(1, dt * 10);
     phase += dt * (5.5 + runK * 4.5) * Math.max(walk, 0.0001);
 
     const amp = (0.55 + runK * 0.35) * walk;
     const sw = Math.sin(phase);
-    legs[0].rotation.x = sw * amp * (1 - air) - air * 0.6;
-    legs[1].rotation.x = -sw * amp * (1 - air) + air * 0.35;
+    const hop = Math.abs(Math.sin(time * 9)) * cheerK;
+    legs[0].rotation.x = (sw * amp * (1 - air) - air * 0.6) * (1 - cheerK) - hop * 0.3;
+    legs[1].rotation.x = (-sw * amp * (1 - air) + air * 0.35) * (1 - cheerK) + hop * 0.15;
 
     // idle: hands tucked into the cardigan pockets, like the photo
     const idleX = -0.2;
@@ -259,21 +267,33 @@ export function createAvatar(): Avatar {
     for (let i = 0; i < 2; i++) {
       const s = i === 0 ? 1 : -1;
       const swing = -sw * s * amp * 0.95;
-      arms[i].rotation.x = idleX * (1 - walk) + swing * walk - air * 0.5;
-      arms[i].rotation.z = s * (idleZ * (1 - walk) - 0.08 * walk) * -1 + s * air * 0.5;
-      hands[i].scale.setScalar(Math.max(0.01, Math.min(1, walk * 3 + air)));
+      const baseX = idleX * (1 - walk) + swing * walk - air * 0.5;
+      const baseZ = s * (idleZ * (1 - walk) - 0.08 * walk) * -1 + s * air * 0.5;
+      const wave = Math.sin(time * 14 + i * Math.PI) * 0.18;
+      arms[i].rotation.x = baseX * (1 - cheerK) + (-2.75 + wave) * cheerK;
+      arms[i].rotation.z = baseZ * (1 - cheerK) + s * 0.38 * cheerK;
+      hands[i].scale.setScalar(Math.max(0.01, Math.min(1, walk * 3 + air + cheerK)));
     }
     const bob = Math.abs(Math.cos(phase)) * 0.05 * walk;
     const breathe = Math.sin(time * 2.2) * 0.006 * (1 - walk);
-    body.position.y = bob + breathe;
-    body.rotation.x = runK * 0.14 * walk;
+    body.position.y = bob + breathe + hop * 0.16;
+    body.rotation.x = runK * 0.14 * walk * (1 - cheerK);
     torso.scale.y = 1 + breathe;
-    head.rotation.x = -runK * 0.08 * walk;
+    head.rotation.x = -runK * 0.08 * walk - cheerK * 0.18;
     head.rotation.z = Math.sin(time * 0.9) * 0.02 * (1 - walk);
+
+    // one footstep per half stride
+    const stepIdx = Math.floor(phase / Math.PI);
+    const stepped = stepIdx !== lastStep && walk > 0.3 && !airborne && cheerK < 0.5;
+    lastStep = stepIdx;
+    return stepped;
   };
   update(0, 0, 0, false, false);
+  const cheer = (seconds = 1.6) => {
+    cheerT = seconds;
+  };
 
-  return { root, update };
+  return { root, update, cheer };
 }
 
 /** Renders the avatar once to an offscreen canvas for HUD/title portraits. */

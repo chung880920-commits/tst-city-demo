@@ -16,6 +16,7 @@ export function createSky() {
       mid: { value: new THREE.Color('#d9799a') },
       horizon: { value: new THREE.Color('#ffb27a') },
       sun: { value: new THREE.Color('#fff1c2') },
+      night: { value: 0 },
     },
     vertexShader: /* glsl */ `
       varying vec3 vDir;
@@ -27,6 +28,7 @@ export function createSky() {
     `,
     fragmentShader: /* glsl */ `
       uniform vec3 sunDir, top, mid, horizon, sun;
+      uniform float night;
       varying vec3 vDir;
       void main() {
         vec3 d = normalize(vDir);
@@ -36,6 +38,9 @@ export function createSky() {
         float s = max(dot(d, normalize(vec3(sunDir.x, 0.09, sunDir.z))), 0.0);
         c += sun * (pow(s, 600.0) * 2.5 + pow(s, 24.0) * 0.45 + pow(s, 4.0) * 0.18);
         if (d.y < 0.0) c = mix(c, horizon * 0.9, smoothstep(0.0, -0.08, d.y));
+        vec3 cell = floor(d * 260.0);
+        float star = step(0.9975, fract(sin(dot(cell, vec3(12.9898, 78.233, 37.719))) * 43758.5453));
+        c += vec3(0.9, 0.92, 1.0) * star * night * smoothstep(0.06, 0.35, d.y);
         gl_FragColor = vec4(c, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -133,4 +138,70 @@ export function createLights(scene: THREE.Scene) {
   scene.add(sun);
   scene.add(sun.target);
   return { hemi, sun };
+}
+
+export interface TimeOfDayTargets {
+  scene: THREE.Scene;
+  sky: THREE.Mesh;
+  water: Record<string, THREE.IUniform>;
+  hemi: THREE.HemisphereLight;
+  sun: THREE.DirectionalLight;
+  lamp: THREE.PointLight;
+  mats: {
+    windows: THREE.MeshBasicMaterial;
+    skyline: THREE.MeshBasicMaterial;
+    skylineWin: THREE.MeshBasicMaterial;
+    signs: THREE.MeshBasicMaterial;
+    glow: THREE.MeshBasicMaterial;
+  };
+}
+
+const pair = (a: string, b: string) => [new THREE.Color(a), new THREE.Color(b)] as const;
+const PALETTE = {
+  top: pair('#2b3f7a', '#060a20'),
+  mid: pair('#d9799a', '#151a44'),
+  horizon: pair('#ffb27a', '#352a5e'),
+  sunGlow: pair('#fff1c2', '#262a52'),
+  fog: pair('#e9a27e', '#1b1a3a'),
+  hemiSky: pair('#ffd9c4', '#5a68b0'),
+  hemiGround: pair('#5a5a80', '#1a1832'),
+  sun: pair('#ffb878', '#8fa6ff'),
+  deep: pair('#17507a', '#08152e'),
+  shallow: pair('#2f8ba3', '#123052'),
+  skyTint: pair('#e7948f', '#2b2a5c'),
+  sunCol: pair('#ffd28a', '#c98a4a'),
+  windows: pair('#33405c', '#ffd690'),
+  skyline: pair('#ffffff', '#3a3a62'),
+};
+
+/** Blends every lighting parameter between sunset (0) and night (1). */
+export function createTimeOfDay(t: TimeOfDayTargets) {
+  const sky = (t.sky.material as THREE.ShaderMaterial).uniforms;
+  const fog = t.scene.fog as THREE.Fog;
+  const bg = t.scene.background as THREE.Color;
+  const lerp = (out: THREE.Color, p: readonly [THREE.Color, THREE.Color], k: number) => out.copy(p[0]).lerp(p[1], k);
+  return (k: number) => {
+    lerp(sky.top.value, PALETTE.top, k);
+    lerp(sky.mid.value, PALETTE.mid, k);
+    lerp(sky.horizon.value, PALETTE.horizon, k);
+    lerp(sky.sun.value, PALETTE.sunGlow, k);
+    sky.night.value = k;
+    lerp(fog.color, PALETTE.fog, k);
+    bg.copy(fog.color);
+    lerp(t.hemi.color, PALETTE.hemiSky, k);
+    lerp(t.hemi.groundColor, PALETTE.hemiGround, k);
+    t.hemi.intensity = THREE.MathUtils.lerp(1.35, 0.6, k);
+    lerp(t.sun.color, PALETTE.sun, k);
+    t.sun.intensity = THREE.MathUtils.lerp(1.9, 0.35, k);
+    lerp(t.water.deep.value, PALETTE.deep, k);
+    lerp(t.water.shallow.value, PALETTE.shallow, k);
+    lerp(t.water.skyTint.value, PALETTE.skyTint, k);
+    lerp(t.water.sunCol.value, PALETTE.sunCol, k);
+    lerp(t.mats.windows.color, PALETTE.windows, k);
+    lerp(t.mats.skyline.color, PALETTE.skyline, k);
+    t.mats.skylineWin.color.setScalar(THREE.MathUtils.lerp(0.9, 1.6, k));
+    t.mats.signs.color.setScalar(THREE.MathUtils.lerp(0.78, 1.35, k));
+    t.mats.glow.color.setScalar(THREE.MathUtils.lerp(0.9, 1.25, k));
+    t.lamp.intensity = THREE.MathUtils.lerp(0, 9, k);
+  };
 }

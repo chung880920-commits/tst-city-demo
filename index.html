@@ -17,6 +17,7 @@
         <h1>尖沙咀城市尋寶<span>（試玩版）</span></h1>
         <p class="lead">喺日落海旁行一圈，搵齊 3 個發光寶藏點。</p>
         <button id="start-btn" class="btn btn-gold btn-xl" disabled>載入中…</button>
+        <p id="resume-note" class="resume-note" hidden></p>
         <ul class="howto">
           <li class="help-touch">左下搖桿：行路</li>
           <li class="help-touch">右下「跑」「跳」掣</li>
@@ -40,7 +41,19 @@
         <canvas id="minimap" width="400" height="400" aria-label="小地圖"></canvas>
         <div class="compass" id="compass">北</div>
       </div>
-      <button id="settings-btn" class="btn-icon" aria-label="設定">⚙</button>
+      <div class="hud-btns">
+        <button id="settings-btn" class="btn-icon" aria-label="設定">⚙</button>
+        <button id="mute-btn" class="btn-icon" aria-label="聲音：開" aria-pressed="false">
+          <svg class="ico-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg>
+          <svg class="ico-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16.5 9.5l5 5M21.5 9.5l-5 5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+        </button>
+        <button id="night-btn" class="btn-icon" aria-label="切換夜景" aria-pressed="false">
+          <svg class="ico-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" fill="currentColor"/></svg>
+          <svg class="ico-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="4.5" fill="currentColor"/><path d="M2 19h20M12 3.5v2.5M4.5 6.5l1.8 1.8M19.5 6.5l-1.8 1.8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div id="bubble" class="bubble" hidden></div>
+      <div id="toast" class="toast"></div>
       <div id="zone-toast" class="zone-toast"></div>
 
       <div id="joystick" class="joystick touch-only" aria-label="移動搖桿">
@@ -85,10 +98,13 @@
         <h2>設定</h2>
         <p class="setting-label">畫質</p>
         <div class="row seg" role="group" aria-label="畫質">
+          <button class="btn btn-seg" data-quality="ultra">省電</button>
           <button class="btn btn-seg" data-quality="low">流暢</button>
           <button class="btn btn-seg" data-quality="high">高畫質</button>
         </div>
+        <p class="stats" id="quality-note"></p>
         <p class="stats" id="stats">— fps</p>
+        <button id="reset-progress" class="btn btn-outline btn-xl">重新開始尋寶</button>
         <button id="settings-close" class="btn btn-gold btn-xl">返回遊戲</button>
       </div>
     </div>

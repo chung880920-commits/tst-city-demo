@@ -31,9 +31,39 @@ names and signs are fictional. See [`CREDITS.md`](./CREDITS.md).
 | Jump | Space | 「跳」 button |
 | Camera | Drag with mouse | Drag anywhere on the 3D view |
 
-Settings (⚙) has a quality toggle: **流暢** (no real-time shadows, pixel ratio ≤ 1.25)
-and **高畫質** (shadows, pixel ratio ≤ 2). Touch devices default to 流暢. The panel
-also shows live fps, triangle count and draw calls.
+### HUD buttons (top right)
+
+- **⚙ Settings:** quality, live fps / triangles / draw calls, and 「重新開始尋寶」 (reset progress).
+- **🔊 Sound:** mute / unmute. Remembered between visits. Audio starts when you press 開始
+  (required by iOS Safari).
+- **🌙 / ☀ Night:** fades between sunset and night (~2.5 s). At night the neon, shop windows
+  and the Hong Kong Island skyline are self-lit (emissive materials, no extra lights);
+  the only extra real light is one warm street-lamp glow around the player.
+
+### Quality
+
+Three levels: **省電** (no shadows, no lamp light, pixel ratio ≈ 0.75), **流暢**
+(no shadows, pixel ratio ≤ 1.25) and **高畫質** (shadows, pixel ratio ≤ 2).
+Touch devices start on 流暢, desktops on 高畫質. **Auto quality:** after you press 開始,
+the game measures fps for ~3.5 s and steps down (below 45 fps: 高畫質 → 流暢; below 28 fps:
+→ 省電). Choosing a level by hand turns auto off and is remembered.
+
+### Guidance and rewards
+
+- A glowing gold line on the ground shows a walkable route to the next checkpoint
+  (A* on a 4 m grid around the buildings, then smoothed).
+- If you stand still for 15 s, the avatar says 「差少少啫，跟住金線行！」, the 下一站
+  panel pulses and the guide line throbs.
+- Unlocking a checkpoint: gold particle burst, the camera swings round and pushes in,
+  the avatar cheers, a gold chime plays and the phone vibrates (where supported).
+  The completion card adds a short jingle.
+
+### Saved progress
+
+Found checkpoints and your position are saved in `localStorage` (`tst-progress-v1`)
+every few seconds and on each unlock, so a reload continues where you left off.
+Settings → 「重新開始尋寶」 clears it. Mute (`tst-muted`), night (`tst-night`) and a
+manual quality choice (`tst-quality`) are remembered too.
 
 ## Run locally
 
@@ -70,7 +100,9 @@ src/
   main.ts      game loop, player physics, chase camera, checkpoints, HUD wiring
   world.ts     procedural TST layout, buildings, landmarks, colliders, minimap shapes, traffic
   avatar.ts    low-poly founder avatar, procedural animation, portrait renderer
-  env.ts       sunset sky shader, animated water shader, lights
+  env.ts       sky shader (sunset + stars), animated water shader, lights, sunset↔night palette
+  audio.ts     Web Audio synthesised footsteps, ambience, chime, jingle; mute
+  guide.ts     grid A* navigator, gold guide-line ribbon, particle burst
   signs.ts     neon / shop sign texture atlas (one draw call for every sign)
   builder.ts   merges many small shapes into one vertex-coloured mesh
   input.ts     keyboard, mouse orbit, touch joystick and buttons
