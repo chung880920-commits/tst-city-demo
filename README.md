@@ -44,7 +44,7 @@ names and signs are fictional. See [`CREDITS.md`](./CREDITS.md).
 
 Three levels: **省電** (no shadows, no lamp light, pixel ratio ≈ 0.75), **流暢**
 (no shadows, pixel ratio ≤ 1.25) and **高畫質** (shadows, pixel ratio ≤ 2).
-Touch devices start on 流暢, desktops on 高畫質. **Auto quality:** after you press 開始,
+Touch devices start on 流暢, desktops on 高畫質. **Auto quality:** from the first frames (the title screen already renders the full scene),
 the game measures fps for ~3.5 s and steps down (below 45 fps: 高畫質 → 流暢; below 28 fps:
 → 省電). Choosing a level by hand turns auto off and is remembered.
 

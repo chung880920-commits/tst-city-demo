@@ -163,14 +163,14 @@ const PALETTE = {
   horizon: pair('#ffb27a', '#352a5e'),
   sunGlow: pair('#fff1c2', '#262a52'),
   fog: pair('#e9a27e', '#1b1a3a'),
-  hemiSky: pair('#ffd9c4', '#5a68b0'),
+  hemiSky: pair('#ffd9c4', '#7686c8'),
   hemiGround: pair('#5a5a80', '#1a1832'),
   sun: pair('#ffb878', '#8fa6ff'),
   deep: pair('#17507a', '#08152e'),
   shallow: pair('#2f8ba3', '#123052'),
   skyTint: pair('#e7948f', '#2b2a5c'),
   sunCol: pair('#ffd28a', '#c98a4a'),
-  windows: pair('#33405c', '#ffd690'),
+  windows: pair('#33405c', '#f2c070'),
   skyline: pair('#ffffff', '#3a3a62'),
 };
 
@@ -190,7 +190,7 @@ export function createTimeOfDay(t: TimeOfDayTargets) {
     bg.copy(fog.color);
     lerp(t.hemi.color, PALETTE.hemiSky, k);
     lerp(t.hemi.groundColor, PALETTE.hemiGround, k);
-    t.hemi.intensity = THREE.MathUtils.lerp(1.35, 0.6, k);
+    t.hemi.intensity = THREE.MathUtils.lerp(1.35, 0.85, k);
     lerp(t.sun.color, PALETTE.sun, k);
     t.sun.intensity = THREE.MathUtils.lerp(1.9, 0.35, k);
     lerp(t.water.deep.value, PALETTE.deep, k);

@@ -247,13 +247,14 @@ export class Burst {
     c.width = c.height = 64;
     const x = c.getContext('2d')!;
     const grad = x.createRadialGradient(32, 32, 0, 32, 32, 32);
-    grad.addColorStop(0, 'rgba(255,255,230,1)');
-    grad.addColorStop(0.35, 'rgba(255,214,90,0.9)');
+    grad.addColorStop(0, 'rgba(255,255,235,1)');
+    grad.addColorStop(0.18, 'rgba(255,220,100,0.95)');
+    grad.addColorStop(0.45, 'rgba(255,190,40,0.25)');
     grad.addColorStop(1, 'rgba(255,170,0,0)');
     x.fillStyle = grad;
     x.fillRect(0, 0, 64, 64);
     this.mat = new THREE.PointsMaterial({
-      size: 0.55,
+      size: 0.34,
       map: new THREE.CanvasTexture(c),
       transparent: true,
       depthWrite: false,

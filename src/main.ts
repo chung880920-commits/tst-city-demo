@@ -426,6 +426,13 @@ function boot() {
   };
   loadProgress();
   updateCount();
+  const saveIfPlaying = () => {
+    if (state !== 'title') saveProgress();
+  };
+  window.addEventListener('pagehide', saveIfPlaying);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) saveIfPlaying();
+  });
 
   // --------------------------------------------------------------- modals
   const openModal = (id: string) => {
@@ -663,12 +670,14 @@ function boot() {
 
   const frame = (now?: number) => {
     timer.update(now);
-    const dt = Math.min(timer.getDelta(), 1 / 20);
+    // Simulation steps are capped for stability; fades and autosave follow wall-clock time.
+    const realDt = Math.min(timer.getDelta(), 0.25);
+    const dt = Math.min(realDt, 1 / 20);
     const t = timer.getElapsed();
     updateAutoQuality(performance.now());
 
     if (Math.abs(nightK - nightTarget) > 0.001) {
-      nightK += Math.sign(nightTarget - nightK) * Math.min(Math.abs(nightTarget - nightK), dt * 0.4);
+      nightK += Math.sign(nightTarget - nightK) * Math.min(Math.abs(nightTarget - nightK), realDt * 0.4);
       setTimeOfDay(nightK);
     }
 
@@ -706,7 +715,7 @@ function boot() {
           if (found.has(v.cp.id)) continue;
           if (Math.hypot(player.pos.x - v.cp.x, player.pos.z - v.cp.z) < 2.6) unlock(v.cp.id);
         }
-        saveTick -= dt;
+        saveTick -= realDt;
         if (saveTick <= 0) {
           saveTick = 3;
           saveProgress();
