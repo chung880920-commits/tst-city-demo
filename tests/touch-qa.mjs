@@ -104,24 +104,48 @@ async function fontAudit(browser, label, opts) {
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.waitForTimeout(2500);
-  const audit = () => page.evaluate(() => {
+  // On-screen size = computed font-size × any ancestor transform scale × pinch/zoom-out of the
+  // visual viewport. Ink = real glyph height (canvas measureText of the same text and font).
+  const audit = () => page.evaluate(async () => {
+    // let pop-in animations (modal cards start at scale 0.7) finish; skip infinite pulses
+    await Promise.all(document.getAnimations().filter((a) => a.effect?.getComputedTiming().iterations !== Infinity).map((a) => a.finished.catch(() => 0)));
     const out = [];
+    const vv = window.visualViewport?.scale ?? 1;
+    const mc = document.createElement('canvas').getContext('2d');
     for (const el of document.querySelectorAll('body *')) {
-      const own = [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
-      if (!own) continue;
+      const own = [...el.childNodes].filter((n) => n.nodeType === 3 && n.textContent.trim());
+      if (!own.length) continue;
       const r = el.getBoundingClientRect();
       const cs = getComputedStyle(el);
-      if (!r.width || !r.height || cs.visibility === 'hidden' || el.closest('[hidden]')) continue;
-      const px = parseFloat(cs.fontSize);
-      out.push({ t: el.textContent.trim().slice(0, 14), px });
+      if (!r.width || !r.height || cs.visibility === 'hidden' || +cs.opacity === 0 && !el.closest('.toast') || el.closest('[hidden]')) continue;
+      const lw = el.offsetWidth || r.width;
+      const scale = lw ? r.width / lw : 1;
+      const px = parseFloat(cs.fontSize) * scale * vv;
+      const text = own.map((n) => n.textContent.trim()).join('');
+      mc.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      const m = mc.measureText(text);
+      const ink = (m.actualBoundingBoxAscent + m.actualBoundingBoxDescent) * scale * vv;
+      out.push({ t: text.slice(0, 14), px: Math.round(px * 10) / 10, ink: Math.round(ink * 10) / 10 });
     }
-    return out;
+    return { out, vv, overflow: document.documentElement.scrollWidth > innerWidth + 1 };
   });
   const all = [];
-  const grab = async (screen) => { for (const a of await audit()) all.push({ ...a, screen }); };
+  const views = [];
+  const grab = async (screen) => {
+    const a = await audit();
+    views.push(a.vv === 1 && !a.overflow);
+    for (const x of a.out) all.push({ ...x, screen });
+  };
   await grab('title');
   if (opts.hasTouch) await page.tap('#start-btn'); else await page.click('#start-btn');
   await page.waitForTimeout(800);
+  if (opts.hasTouch) {
+    await page.tap('#boost-btn', { force: true });
+    await page.waitForTimeout(500);
+    await grab('hud locked boost + toast');
+  }
+  const mm = (await info(page)).minimapLabelPx;
+  all.push({ t: 'minimap ◆ (canvas)', px: Math.round(mm * 10) / 10, ink: Math.round(mm * 0.8 * 10) / 10, screen: 'hud canvas' });
   await page.evaluate(() => __tst.setEnergy(3));
   await page.waitForTimeout(500);
   await grab('hud');
@@ -140,8 +164,10 @@ async function fontAudit(browser, label, opts) {
   await grab('complete');
   const small = all.filter((a) => a.px < 18);
   const min = all.reduce((m, a) => (a.px < m.px ? a : m), { px: 99 });
-  const label2 = (n) => all.filter((a) => a.t.startsWith(n)).map((a) => `${a.px}px`)[0];
-  check(`[${label}] all visible text ≥ 18px (${all.length} text elements, 5 screens)`, small.length === 0, small.length ? small.map((s) => `${s.screen}:"${s.t}" ${s.px}px`).join(', ') : `smallest ${min.px}px "${min.t}" (${min.screen}); 下一站 ${label2('下一站')}, （試玩版） ${label2('（試玩版）')}`);
+  const under20 = all.filter((a) => a.px < 20).length;
+  const label2 = (n) => all.filter((a) => a.t.startsWith(n)).map((a) => `${a.px}px (ink ${a.ink}px)`)[0];
+  check(`[${label}] page is not zoomed out or overflowing (visualViewport.scale = 1)`, views.every(Boolean), `screens ok ${views.filter(Boolean).length}/${views.length}`);
+  check(`[${label}] all visible text ≥ 18 on-screen CSS px (${all.length} text items incl. canvas, ${new Set(all.map((a) => a.screen)).size} screens)`, small.length === 0, small.length ? small.map((s) => `${s.screen}:"${s.t}" ${s.px}px`).join(', ') : `smallest ${min.px}px "${min.t}" (${min.screen}); under 20px: ${under20}; 下一站 ${label2('下一站')}; 香港 · 尖沙咀海旁 ${label2('香港')}; （試玩版） ${label2('（試玩版）')}`);
   await ctx.close();
 }
 
@@ -151,6 +177,7 @@ export default async (browser) => {
   await longDrag(browser, 'Android Chrome UA', UAS.android);
   await longDrag(browser, 'iPhone UA', UAS.iphone);
   await fontAudit(browser, 'mobile portrait 390x844', { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, userAgent: UAS.iphone });
+  await fontAudit(browser, 'mobile portrait 360x740', { viewport: { width: 360, height: 740 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, userAgent: UAS.android });
   await fontAudit(browser, 'mobile landscape 844x390', { viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, userAgent: UAS.android });
   await fontAudit(browser, 'desktop 1280x720', { viewport: { width: 1280, height: 720 } });
   console.log(`\n${results.filter((r) => r.ok).length}/${results.length} passed`);

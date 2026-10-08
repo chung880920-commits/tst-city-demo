@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "qa:touch": "node tests/run.mjs tests/touch-qa.mjs",
-    "qa:camera": "node tests/run.mjs tests/camera-qa.mjs"
+    "qa:camera": "node tests/run.mjs tests/camera-qa.mjs",
+    "qa:hud": "node tests/run.mjs tests/hud-qa.mjs"
   },
   "devDependencies": {
     "@types/three": "^0.186.0",

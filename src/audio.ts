@@ -225,6 +225,55 @@ export class Sound {
     this.bell(2093, t + 0.82, 0.9, 0.05, this.sfx);
   }
 
+  /** Promo hero landing: a sub-bass drop with a short noise crunch (gravel / paving breaking). */
+  impact() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime + 0.005;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(95, t);
+    o.frequency.exponentialRampToValueAtTime(32, t + 0.55);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.9, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
+    o.connect(g).connect(this.sfx);
+    o.start(t);
+    o.stop(t + 1);
+    const n = ctx.createBufferSource();
+    n.buffer = this.noise;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(2400, t);
+    lp.frequency.exponentialRampToValueAtTime(180, t + 0.5);
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, t);
+    ng.gain.exponentialRampToValueAtTime(0.5, t + 0.006);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+    n.connect(lp).connect(ng).connect(this.sfx);
+    n.start(t, Math.random());
+    n.stop(t + 0.7);
+  }
+
+  /** Promo armour plate snapping shut: a bright metallic tick over a short knock. */
+  clank() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime + 0.005;
+    for (const [f, a] of [[1870, 0.06], [2690, 0.04], [3420, 0.025]] as const) this.bell(f, t, 0.18, a, this.sfx, 'square');
+    const ctx = this.ctx;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.frequency.setValueAtTime(220, t);
+    o.frequency.exponentialRampToValueAtTime(90, t + 0.08);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.35, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+    o.connect(g).connect(this.sfx);
+    o.start(t);
+    o.stop(t + 0.15);
+  }
+
   /** Plates folding back into the cardigan: the same plucks, descending. */
   fold() {
     if (!this.ctx) return;

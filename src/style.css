@@ -136,7 +136,7 @@ body.touch .help-desk { display: none; }
   color: var(--gold);
   font-weight: 700;
   letter-spacing: 0.3em;
-  font-size: 1.2rem;
+  font-size: 1.35rem;
 }
 h1 {
   margin: 0 0 12px;
@@ -148,11 +148,11 @@ h1 {
 }
 h1 span {
   display: block;
-  font-size: max(0.5em, 1.3rem);
+  font-size: max(0.55em, 1.5rem);
   color: var(--gold);
   margin-top: 6px;
 }
-.lead { font-size: 1.25rem; line-height: 1.6; margin: 0 0 24px; }
+.lead { font-size: 1.3rem; line-height: 1.6; margin: 0 0 24px; }
 .howto {
   list-style: none;
   padding: 0;
@@ -205,7 +205,7 @@ h1 span {
   max-width: 60vw;
 }
 .objective:empty { display: none; }
-.objective small { display: block; font-size: 1.25rem; color: var(--gold); letter-spacing: 0.1em; }
+.objective small { display: block; font-size: 1.4rem; font-weight: 900; color: var(--gold); letter-spacing: 0.1em; }
 .objective .obj-name { display: block; color: #fff; }
 .objective .obj-dist { display: block; font-size: 1.25rem; color: var(--gold-2); }
 
@@ -226,9 +226,9 @@ h1 span {
 }
 .compass {
   position: absolute;
-  width: 36px;
-  height: 36px;
-  margin: -18px 0 0 -18px;
+  width: 40px;
+  height: 40px;
+  margin: -20px 0 0 -20px;
   display: grid;
   place-items: center;
   border-radius: 50%;
@@ -236,7 +236,7 @@ h1 span {
   border: 2px solid var(--gold);
   color: var(--gold);
   font-weight: 900;
-  font-size: 1rem;
+  font-size: 1.1rem;
 }
 
 .hud-btns {
@@ -316,12 +316,16 @@ h1 span {
   border: 3px solid var(--gold);
   border-radius: 16px;
   padding: 10px 20px;
-  font-size: 1.1rem;
+  font-size: 1.2rem;
   font-weight: 800;
-  white-space: nowrap;
+  line-height: 1.4;
+  text-align: center;
+  width: max-content;
+  max-width: calc(100vw - 32px);
   opacity: 0;
   transition: opacity 0.4s ease;
 }
+.toast.warn { border-color: #7fe3d8; }
 .toast.show { opacity: 1; }
 body.touch .toast { bottom: auto; top: calc(40% + env(safe-area-inset-top)); }
 
@@ -406,7 +410,7 @@ body.touch .toast { bottom: auto; top: calc(40% + env(safe-area-inset-top)); }
 .act-btn.active { background: var(--gold); color: var(--navy); }
 
 /* ---------- AI Boost ---------- */
-.hud-energy { display: flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 1.05rem; font-weight: 800; color: #7fe3d8; }
+.hud-energy { display: flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 1.1rem; font-weight: 800; color: #7fe3d8; }
 .hud-energy span { margin-right: 3px; }
 .hud-energy i {
   --f: 0;
@@ -438,6 +442,90 @@ body.touch .toast { bottom: auto; top: calc(40% + env(safe-area-inset-top)); }
 }
 .boost-btn[hidden] { display: none; }
 .boost-btn:active { transform: scale(0.94); }
+.boost-count { display: none; }
+.boost-btn.locked {
+  animation: none;
+  border-color: rgba(127, 227, 216, 0.6);
+  background: rgba(11, 31, 58, 0.78);
+  color: rgba(255, 246, 224, 0.72);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+.boost-btn.locked .boost-count {
+  display: block;
+  position: absolute;
+  left: 50%;
+  bottom: -16px;
+  transform: translateX(-50%);
+  padding: 0 10px;
+  border-radius: 12px;
+  background: var(--navy);
+  border: 2px solid #7fe3d8;
+  color: #7fe3d8;
+  font-size: 1.05rem;
+  line-height: 1.35;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.test-badge {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 0 10px;
+  border-radius: 12px;
+  background: #b3261e;
+  color: #fff;
+  font-size: 1.05rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+body.test-mode .objective { margin-top: 32px; }
+
+/* ---------- Unlock celebration (CSS-timed, independent of the 3D frame rate) ---------- */
+.celebrate { position: fixed; inset: 0; pointer-events: none; z-index: 35; overflow: hidden; }
+.celebrate .ring {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  width: 80px;
+  height: 80px;
+  margin: -40px 0 0 -40px;
+  border-radius: 50%;
+  border: 10px solid var(--gold-2);
+  box-shadow: 0 0 30px 8px rgba(245, 197, 66, 0.8), inset 0 0 24px rgba(255, 246, 224, 0.9);
+  animation: ring-out 0.9s cubic-bezier(0.15, 0.7, 0.3, 1) forwards;
+}
+.celebrate .ring.r2 { animation-delay: 0.18s; opacity: 0; border-width: 6px; }
+.celebrate .flash {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at var(--x) var(--y), rgba(255, 236, 170, 0.85), rgba(255, 210, 90, 0.35) 30%, transparent 65%);
+  animation: flash 0.7s ease-out forwards;
+}
+.celebrate .bit {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  width: 14px;
+  height: 22px;
+  border-radius: 3px;
+  background: var(--c);
+  animation: confetti 1.9s cubic-bezier(0.2, 0.6, 0.4, 1) forwards;
+  animation-delay: var(--d);
+  opacity: 0;
+}
+@keyframes ring-out {
+  0% { transform: scale(0.3); opacity: 1; }
+  100% { transform: scale(7); opacity: 0; }
+}
+@keyframes flash { 0% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes confetti {
+  0% { transform: translate(0, 0) rotate(0) scale(0.6); opacity: 1; }
+  45% { transform: translate(calc(var(--dx) * 0.8), var(--dy)) rotate(calc(var(--r) * 0.5)) scale(1); opacity: 1; }
+  100% { transform: translate(var(--dx), calc(var(--dy) + 55vh)) rotate(var(--r)) scale(0.9); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .celebrate .bit { display: none; }
+}
 .boost-key {
   position: absolute;
   top: -10px;
@@ -452,6 +540,7 @@ body.touch .toast { bottom: auto; top: calc(40% + env(safe-area-inset-top)); }
   font-weight: 900;
 }
 body.touch .boost-key { display: none; }
+body:not(.touch) .boost-btn.locked { display: none; }
 body.touch .boost-btn { right: calc(20px + env(safe-area-inset-right)); bottom: calc(272px + env(safe-area-inset-bottom)); }
 @keyframes boost-ready {
   0%, 100% { box-shadow: 0 0 0 0 rgba(245, 197, 66, 0.7), 0 6px 18px rgba(0, 0, 0, 0.4); }
@@ -538,7 +627,7 @@ body.touch .boost-btn { right: calc(20px + env(safe-area-inset-right)); bottom: 
   #hud-portrait { width: 60px; height: 60px; }
   .hud-player { padding: 6px 14px 6px 6px; }
   .objective { top: calc(124px + env(safe-area-inset-top)); font-size: 1.3rem; max-width: calc(100vw - 170px); padding: 8px 14px; }
-  .objective small { font-size: 1.2rem; }
+  .objective small { font-size: 1.4rem; }
   .objective .obj-dist { font-size: 1.2rem; }
   .howto { font-size: 1.2rem; }
   .title-portrait { width: 128px; height: 128px; }

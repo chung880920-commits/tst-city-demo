@@ -232,6 +232,10 @@ export class Burst {
   readonly points: THREE.Points;
   private vel: Float32Array;
   private pos: Float32Array;
+  private origin: Float32Array;
+  private delay: Float32Array;
+  private age = 0;
+  private duration = 1.8;
   private life = 0;
   private count: number;
   private live = 0;
@@ -241,6 +245,8 @@ export class Burst {
     this.count = count;
     this.pos = new Float32Array(count * 3);
     this.vel = new Float32Array(count * 3);
+    this.origin = new Float32Array(count * 3);
+    this.delay = new Float32Array(count);
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
     const c = document.createElement('canvas');
@@ -266,17 +272,28 @@ export class Burst {
     this.points.visible = false;
   }
 
-  fire(x: number, y: number, z: number, count = this.count) {
+  /**
+   * `big` is the unlock celebration: larger sparkles, a wider spread and a second, slower wave.
+   * Positions are a closed-form function of elapsed time, so a 10 fps phone sees the same burst as 60 fps.
+   */
+  fire(x: number, y: number, z: number, count = this.count, big = false) {
+    const n = Math.min(count, this.count);
     for (let i = 0; i < this.count; i++) {
-      const on = i < count;
+      const on = i < n;
+      const late = big && i >= n * 0.6;
       const a = Math.random() * Math.PI * 2;
-      const up = 3 + Math.random() * 7;
-      const out = 1.5 + Math.random() * 4;
-      this.pos.set(on ? [x, y, z] : [0, -999, 0], i * 3);
-      this.vel.set([Math.cos(a) * out, up, Math.sin(a) * out], i * 3);
+      const up = (big ? 4 : 3) + Math.random() * (big ? 8 : 7);
+      const out = (big ? 2.5 : 1.5) + Math.random() * (big ? 6 : 4);
+      this.origin.set(on ? [x, y, z] : [0, -999, 0], i * 3);
+      this.vel.set([Math.cos(a) * out * (late ? 0.55 : 1), up * (late ? 0.6 : 1), Math.sin(a) * out * (late ? 0.55 : 1)], i * 3);
+      this.delay[i] = late ? 0.25 + Math.random() * 0.35 : 0;
     }
-    this.live = Math.min(count, this.count);
-    this.life = 1.8;
+    this.pos.set(this.origin);
+    this.live = n;
+    this.age = 0;
+    this.duration = big ? 2.4 : 1.8;
+    this.life = this.duration;
+    this.mat.size = big ? 0.62 : 0.34;
     this.points.visible = true;
   }
 
@@ -284,16 +301,26 @@ export class Burst {
     return this.life > 0;
   }
 
+  /** Widest horizontal distance (m) of any live particle from where it was fired. */
+  get spread() {
+    let m = 0;
+    for (let i = 0; i < this.live; i++) m = Math.max(m, Math.hypot(this.pos[i * 3] - this.origin[i * 3], this.pos[i * 3 + 2] - this.origin[i * 3 + 2]));
+    return m;
+  }
+
+  /** `dt` should be real elapsed time (not the capped simulation step). */
   update(dt: number) {
     if (this.life <= 0) return;
-    this.life -= dt;
+    this.age += dt;
+    this.life = this.duration - this.age;
+    const drag = 0.9;
     for (let i = 0; i < this.live; i++) {
-      this.vel[i * 3 + 1] -= 9 * dt;
-      this.vel[i * 3] *= 0.985;
-      this.vel[i * 3 + 2] *= 0.985;
-      this.pos[i * 3] += this.vel[i * 3] * dt;
-      this.pos[i * 3 + 1] = Math.max(0.15, this.pos[i * 3 + 1] + this.vel[i * 3 + 1] * dt);
-      this.pos[i * 3 + 2] += this.vel[i * 3 + 2] * dt;
+      const t = Math.max(0, this.age - this.delay[i]);
+      const spread = (1 - Math.exp(-drag * t)) / drag;
+      const o = i * 3;
+      this.pos[o] = this.origin[o] + this.vel[o] * spread;
+      this.pos[o + 1] = Math.max(0.15, this.origin[o + 1] + this.vel[o + 1] * t - 4.5 * t * t);
+      this.pos[o + 2] = this.origin[o + 2] + this.vel[o + 2] * spread;
     }
     this.mat.opacity = Math.min(1, this.life / 0.8);
     (this.points.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;

@@ -62,7 +62,7 @@ mechanical transformation or repulsor effects.
 
 ## Names, brands and likeness
 
-- All shop names and signs (金龍茶餐廳, 好運找換, 浪花坊 WAVEFRONT ARCADE, 晨星號, 渡海小輪 …)
+- All shop names and signs (金龍茶餐廳, 好運找換店, 富滿樓酒家, 浪花坊 WAVEFRONT ARCADE, 晨星號, 渡海小輪 …)
   are **fictional**. Any similarity to real businesses is unintended.
 - Real place names (尖沙咀鐘樓, 天星碼頭, 彌敦道, 廣東道, 梳士巴利道, 漢口道) are used only
   as geographic labels. No operator logos, liveries or trademarks are reproduced.

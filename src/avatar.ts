@@ -162,6 +162,11 @@ export interface Avatar {
   cheer: (seconds?: number) => void;
   /** k: 0 = plain cardigan, 1 = full Knit Armor. thrust: 0..1 flame strength. */
   armor: (k: number, thrust: number, time: number) => void;
+  /**
+   * Cinematic controls (promo record mode). land: 0..1 superhero-landing crouch. fly: plates fly in
+   * from this many metres out instead of flipping in place. flame: thruster flame size multiplier.
+   */
+  fx: { land: number; fly: number; flame: number };
 }
 
 interface Plate {
@@ -263,6 +268,7 @@ class PlateSet {
   readonly mesh: THREE.Mesh;
   private plates: Plate[] = [];
   private lastK = -1;
+  private lastFly = 0;
 
   constructor(parts: { plate: Plate; geo: THREE.BufferGeometry }[], mat: THREE.Material) {
     let start = 0;
@@ -282,10 +288,11 @@ class PlateSet {
     this.mesh.visible = false;
   }
 
-  update(k: number) {
+  update(k: number, fly = 0) {
     this.mesh.visible = k > 0.001;
-    if (!this.mesh.visible || Math.abs(k - this.lastK) < 1e-4) return;
+    if (!this.mesh.visible || (Math.abs(k - this.lastK) < 1e-4 && fly === this.lastFly)) return;
     this.lastK = k;
+    this.lastFly = fly;
     const posAttr = this.mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
     const nrmAttr = this.mesh.geometry.getAttribute('normal') as THREE.BufferAttribute;
     const P = posAttr.array as Float32Array;
@@ -296,7 +303,14 @@ class PlateSet {
       _flip.setFromAxisAngle(pl.axis, Math.PI * (1 - sm));
       _q.copy(pl.hinge).multiply(_flip);
       _p.copy(pl.normal).multiplyScalar(0.006 + 0.022 * Math.sin(local * Math.PI)).add(pl.base);
-      _s.setScalar(0.72 + 0.28 * easeOutBack(local));
+      if (fly > 0) {
+        // promo: the tile flies in from outside, spinning, and slams onto the body
+        const away = Math.pow(1 - sm, 2.2) * fly;
+        _p.addScaledVector(pl.normal, away).y += away * 0.35;
+        _flip.setFromAxisAngle(pl.axis, Math.PI * (1 - sm) * 3);
+        _q.copy(pl.hinge).multiply(_flip);
+      }
+      _s.setScalar(fly > 0 && local <= 0 ? 0.0001 : 0.72 + 0.28 * easeOutBack(local));
       _m.compose(_p, _q, _s);
       const n = pl.pos.length / 3;
       for (let i = 0; i < n; i++) {
@@ -465,15 +479,17 @@ export function createAvatar(): Avatar {
     const on = k > 0.001;
     if (!on && !armorShown) return;
     armorShown = on;
-    for (const set of plateSets) set.update(k);
+    for (const set of plateSets) set.update(k, fx.fly);
     const tk = THREE.MathUtils.clamp((k - 0.8) / 0.2, 0, 1);
     thruster.visible = tk > 0;
     thruster.scale.setScalar(Math.max(0.001, easeOutBack(tk)));
     thruster.position.set(0, 1.03, -0.21 - 0.075 * tk);
     flames.visible = thrust > 0.02;
-    flames.scale.set(1, Math.max(0.01, thrust * (0.8 + 0.25 * Math.sin(time * 47))), 1);
-    flameMat.opacity = 0.55 + 0.3 * thrust;
+    const fl = fx.flame;
+    flames.scale.set(1 + (fl - 1) * 0.6, Math.max(0.01, thrust * fl * (0.8 + 0.25 * Math.sin(time * 47))), 1 + (fl - 1) * 0.6);
+    flameMat.opacity = Math.min(1, 0.55 + 0.3 * thrust * fl);
   };
+  const fx = { land: 0, fly: 0, flame: 1 };
 
   let phase = 0;
   let walk = 0;
@@ -517,6 +533,23 @@ export function createAvatar(): Avatar {
     head.rotation.x = -runK * 0.08 * walk - cheerK * 0.18;
     head.rotation.z = Math.sin(time * 0.9) * 0.02 * (1 - walk);
 
+    // superhero landing: deep crouch, front knee up, back leg reaching back, one fist on the ground
+    const L = fx.land;
+    if (L > 0) {
+      const mix = (a: number, b: number) => a + (b - a) * L;
+      body.position.y = mix(body.position.y, -0.5);
+      body.rotation.x = mix(body.rotation.x, 0.42);
+      legs[0].rotation.x = mix(legs[0].rotation.x, -1.45);
+      legs[1].rotation.x = mix(legs[1].rotation.x, 0.75);
+      arms[0].rotation.x = mix(arms[0].rotation.x, -0.55);
+      arms[0].rotation.z = mix(arms[0].rotation.z, 0.12);
+      arms[1].rotation.x = mix(arms[1].rotation.x, 0.85);
+      arms[1].rotation.z = mix(arms[1].rotation.z, -0.75);
+      hands[0].scale.setScalar(mix(hands[0].scale.x, 1));
+      hands[1].scale.setScalar(mix(hands[1].scale.x, 1));
+      head.rotation.x = mix(head.rotation.x, -0.38);
+    }
+
     // one footstep per half stride
     const stepIdx = Math.floor(phase / Math.PI);
     const stepped = stepIdx !== lastStep && walk > 0.3 && !airborne && cheerK < 0.5;
@@ -528,7 +561,7 @@ export function createAvatar(): Avatar {
     cheerT = seconds;
   };
 
-  return { root, update, cheer, armor };
+  return { root, update, cheer, armor, fx };
 }
 
 /** Renders the avatar once to an offscreen canvas for HUD/title portraits. */

@@ -34,7 +34,8 @@ names and signs are fictional. See [`CREDITS.md`](./CREDITS.md).
 
 ### HUD buttons (top right)
 
-- **⚙ Settings:** quality, live fps / triangles / draw calls, and 「重新開始尋寶」 (reset progress).
+- **⚙ Settings:** quality and 「重新開始尋寶」 (reset progress). The fps / triangles / draw-calls
+  line only shows with `?debug=1`.
 - **🔊 Sound:** mute / unmute. Remembered between visits. Audio starts when you press 開始
   (required by iOS Safari).
 - **🌙 / ☀ Night:** fades between sunset and night (~2.5 s). At night the neon, shop windows
@@ -55,14 +56,20 @@ the game measures fps for ~3.5 s and steps down (below 45 fps: 高畫質 → 流
   (A* on a 4 m grid around the buildings, then smoothed).
 - If you stand still for 15 s, the avatar says 「差少少啫，跟住金線行！」, the 下一站
   panel pulses and the guide line throbs.
-- Unlocking a checkpoint: gold particle burst, the camera swings round and pushes in,
-  the avatar cheers, a gold chime plays and the phone vibrates (where supported).
+- Unlocking a checkpoint: a large two-wave gold particle burst, a screen-space gold ring
+  flash with confetti, the camera swings round and pushes in, the avatar cheers, a gold chime
+  plays and the phone vibrates (where supported). The burst follows wall-clock time (closed-form
+  positions, not per-frame steps) and the ring and confetti are CSS animations, so a phone running
+  at 10 fps sees the same celebration as one at 60 fps. The popup opens after 1.8 s.
   The completion card adds a short jingle.
 
 ### AI 加速 / AI Boost 「針織戰甲」
 
 Each landmark unlock fills one of three **AI 能量** segments (shown under the treasure count).
-When all three are full the large 「AI 加速」 button appears and pulses (desktop: press **E**).
+When all three are full the large 「AI 加速」 button lights up and pulses (desktop: press **E**).
+On touch the button is always shown; until the meter is full it is greyed out with the count
+(for example 1/3). Pressing it, or **E**, before then shows
+「AI 能量未滿（1/3），再解鎖 2 個地標就用得！」 with live counts.
 It is a single press; there is no double-tap trigger. After all three landmarks are found,
 energy refills by one segment every 12 s so you can keep boosting while you explore.
 
@@ -88,6 +95,14 @@ Found checkpoints, AI energy and your position are saved in `localStorage` (`tst
 every few seconds and on each unlock, so a reload continues where you left off.
 Settings → 「重新開始尋寶」 clears it. Mute (`tst-muted`), night (`tst-night`) and a
 manual quality choice (`tst-quality`) are remembered too.
+
+### Test shortcut
+
+Add `?test=1` (or `?energy=full`) to the URL to start with full AI energy, so you can try the
+transform, the 2 × boost, the 5 s fold-back and boosting into walls straight away. Energy refills
+after every boost, a red 「測試模式」 tag shows under the meter, and progress is saved to a
+separate slot (`tst-progress-test-v1`), so normal play is unaffected. `?debug=1` shows the
+fps / triangle / draw-call line in settings.
 
 ## Run locally
 
@@ -207,4 +222,4 @@ No physics engine is needed for this scope, which keeps the bundle small.
 Checkpoints live in `CHECKPOINTS` in `src/world.ts` (`id`, `name`, `x`, `z`). The
 popup is `#popup` in `index.html`; `unlock()` in `src/main.ts` fills it. To add
 scenario questions, attach a question object to each checkpoint and render it into
-the popup in place of 「題目稍後加入」.
+the popup in place of 「小任務即將推出」.

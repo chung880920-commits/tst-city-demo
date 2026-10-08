@@ -16,7 +16,11 @@ const STYLE: Record<MapShape['kind'], string> = {
 const ORIGIN = { x: -200, z: -200 };
 const PPU = 3;
 
+const MARKER_CSS_PX = 20;
+
 export class Minimap {
+  /** On-screen (CSS px) size of the marker glyphs at the last draw; read by the font audit. */
+  labelPx = 0;
   private ctx: CanvasRenderingContext2D;
   private base: HTMLCanvasElement;
   private compass: HTMLElement;
@@ -93,7 +97,12 @@ export class Minimap {
       return { x: S / 2 + dx * c - dz * s, y: S / 2 + dx * s + dz * c };
     };
 
-    const R = S / 2 - 26;
+    // Marker glyphs are sized from the displayed width so they stay >= 20 CSS px on small screens.
+    const shown = this.canvas.clientWidth || S;
+    const glyph = Math.max(22, (MARKER_CSS_PX * S) / shown);
+    const dot = glyph * 0.92;
+    this.labelPx = (glyph * shown) / S;
+    const R = S / 2 - dot - 6;
     for (const cp of checkpoints) {
       let p = toScreen(cp.x, cp.z);
       const dx = p.x - S / 2;
@@ -104,14 +113,14 @@ export class Minimap {
       const isNext = cp.id === nextId;
       const pulse = isNext ? 1 + Math.sin(t * 5) * 0.15 : 1;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, 20 * pulse, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, dot * pulse, 0, Math.PI * 2);
       ctx.fillStyle = done ? '#3fbf6a' : '#f5c542';
       ctx.fill();
-      ctx.lineWidth = 4;
+      ctx.lineWidth = Math.max(4, dot * 0.16);
       ctx.strokeStyle = '#0b1f3a';
       ctx.stroke();
       ctx.fillStyle = '#0b1f3a';
-      ctx.font = '900 22px sans-serif';
+      ctx.font = `900 ${glyph.toFixed(0)}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(done ? '✓' : '◆', p.x, p.y + 1);

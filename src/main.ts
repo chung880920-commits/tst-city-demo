@@ -8,10 +8,16 @@ import { Input } from './input';
 import { Minimap } from './minimap';
 import { mulberry32 } from './builder';
 import { BOUNDS, buildWorld, CHECKPOINTS, CLOCK_TOWER, ZONES } from './world';
+import { CinematicFx } from './fx';
 
 /** ?record=1: deterministic frame-by-frame capture for the promo video (no DOM UI, stepped clock, logged audio). */
-const RECORD = new URLSearchParams(location.search).has('record');
+const PARAMS = new URLSearchParams(location.search);
+const RECORD = PARAMS.has('record');
 if (RECORD) Math.random = mulberry32(20261008);
+/** ?test=1 or ?energy=full: start with full AI energy and refill it after every boost; saves to its own slot. */
+const TEST = !RECORD && (PARAMS.get('test') === '1' || PARAMS.get('energy') === 'full');
+/** ?debug=1: show the fps / triangle / draw-call line in settings. */
+const DEBUG = PARAMS.get('debug') === '1';
 
 type Quality = 'ultra' | 'low' | 'high';
 const QUALITY_LABEL: Record<Quality, string> = { ultra: '省電', low: '流暢', high: '高畫質' };
@@ -36,7 +42,7 @@ const store = {
   },
 };
 
-const PROGRESS_KEY = 'tst-progress-v1';
+const PROGRESS_KEY = TEST ? 'tst-progress-test-v1' : 'tst-progress-v1';
 interface Progress {
   found: string[];
   x: number;
@@ -181,13 +187,19 @@ function boot() {
   /** Record mode: every sound call is logged with its time so the soundtrack can be rendered offline. */
   const soundLog: { t: number; fn: string; a: unknown[] }[] = [];
   let recT0 = 0;
+  /** Video time (s) of the frame being captured; differs from game time during slow motion. */
+  let recVT: number | null = null;
+  const recTime = () => recVT ?? (clock.t - recT0) / 1000;
   if (RECORD) {
-    for (const fn of ['step', 'chime', 'transform', 'fold', 'thrust', 'jingle', 'tramBell', 'updateAmbience'] as const) {
+    for (const fn of ['step', 'chime', 'transform', 'fold', 'thrust', 'jingle', 'tramBell', 'updateAmbience', 'impact', 'clank'] as const) {
       (sound as unknown as Record<string, (...a: unknown[]) => void>)[fn] = (...a: unknown[]) => {
-        soundLog.push({ t: (clock.t - recT0) / 1000, fn, a });
+        soundLog.push({ t: recTime(), fn, a });
       };
     }
   }
+  /** Record mode: scripted height for the hero landing (null = normal physics). */
+  let pinY: number | null = null;
+  let cine: CinematicFx | null = null;
   /** Scripted world-space movement and camera for record mode. */
   let drive: { x: number; z: number; run: boolean } | null = null;
   let camOverride: ((camera: THREE.PerspectiveCamera, t: number) => void) | null = null;
@@ -513,8 +525,9 @@ function boot() {
   };
   const toast = $('toast');
   let toastTimer2 = 0;
-  const showToast = (msg: string) => {
+  const showToast = (msg: string, warn = false) => {
     toast.textContent = msg;
+    toast.classList.toggle('warn', warn);
     toast.classList.add('show');
     window.clearTimeout(toastTimer2);
     toastTimer2 = window.setTimeout(() => toast.classList.remove('show'), 3500);
@@ -567,6 +580,12 @@ function boot() {
     }
   };
   loadProgress();
+  if (TEST) {
+    boost.energy = ENERGY_MAX;
+    boost.announced = true;
+    document.body.classList.add('test-mode');
+    $('test-badge').hidden = false;
+  }
   updateCount();
   const saveIfPlaying = () => {
     if (state !== 'title') saveProgress();
@@ -597,6 +616,33 @@ function boot() {
     syncEnergy();
   };
 
+  /** Screen-space ring flash and confetti; CSS animations run on wall-clock time whatever the 3D frame rate. */
+  const celebrateEl = $('celebrate');
+  const CONFETTI = ['#f5c542', '#ffd970', '#fff6e0', '#2ec4b6', '#ff5a7a', '#7fe3d8'];
+  let celebrateTimer = 0;
+  const celebrate = () => {
+    if (RECORD) return;
+    headPos.set(player.pos.x, player.pos.y + 1.3, player.pos.z).project(camera);
+    const x = THREE.MathUtils.clamp(((headPos.x + 1) / 2) * 100, 15, 85);
+    const y = THREE.MathUtils.clamp(((1 - headPos.y) / 2) * 100, 20, 80);
+    celebrateEl.style.setProperty('--x', `${x}%`);
+    celebrateEl.style.setProperty('--y', `${y}%`);
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const bits: string[] = ['<div class="flash"></div>', '<div class="ring"></div>', '<div class="ring r2"></div>'];
+    const n = reduce ? 0 : 36;
+    const w = Math.min(window.innerWidth, 700);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + Math.random() * 0.4;
+      const r = (0.25 + Math.random() * 0.3) * w;
+      bits.push(
+        `<i class="bit" style="--c:${CONFETTI[i % CONFETTI.length]};--dx:${(Math.cos(a) * r).toFixed(0)}px;--dy:${(Math.sin(a) * r * 0.7 - w * 0.18).toFixed(0)}px;--r:${(Math.random() * 1080 - 540).toFixed(0)}deg;--d:${(Math.random() * 0.12).toFixed(2)}s"></i>`,
+      );
+    }
+    celebrateEl.innerHTML = bits.join('');
+    window.clearTimeout(celebrateTimer);
+    celebrateTimer = window.setTimeout(() => (celebrateEl.innerHTML = ''), 2400);
+  };
+
   let rewardTimer = 0;
   const unlock = (id: string) => {
     if (found.has(id)) return;
@@ -613,22 +659,23 @@ function boot() {
     input.enabled = false;
     input.reset();
     player.vel.set(0, 0, 0);
-    burst.fire(player.pos.x, 1.3, player.pos.z, quality === 'ultra' ? 60 : 140);
-    avatar.cheer(1.9);
+    burst.fire(player.pos.x, 1.3, player.pos.z, 140, true);
+    avatar.cheer(2.2);
+    celebrate();
     cam.pushTarget = 1;
     sound.chime();
     if (navigator.vibrate) navigator.vibrate([40, 30, 90]);
     window.clearTimeout(rewardTimer);
-    if (!RECORD) rewardTimer = window.setTimeout(() => openModal('popup'), 1500);
+    if (!RECORD) rewardTimer = window.setTimeout(() => openModal('popup'), 1800);
   };
 
   const resetProgress = () => {
     found.clear();
     for (const v of cpVisuals) setCheckpointDone(v.cp.id, false);
     endBoost();
-    boost.energy = 0;
+    boost.energy = TEST ? ENERGY_MAX : 0;
     boost.recharge = 0;
-    boost.announced = false;
+    boost.announced = TEST;
     syncEnergy();
     updateCount();
     store.set(PROGRESS_KEY, null);
@@ -639,7 +686,7 @@ function boot() {
     closeModal('popup');
     if (found.size === CHECKPOINTS.length) {
       sound.jingle();
-      burst.fire(player.pos.x, 1.3, player.pos.z, quality === 'ultra' ? 60 : 140);
+      burst.fire(player.pos.x, 1.3, player.pos.z, 140, true);
       if (navigator.vibrate) navigator.vibrate([60, 40, 60, 40, 120]);
       openModal('complete');
     }
@@ -713,7 +760,8 @@ function boot() {
     canvas.focus({ preventScroll: true });
     currentZone = '';
     lastMoveAt = clock.now();
-    if (found.size === CHECKPOINTS.length) showToast('全部寶藏已搵齊，隨便行吓！');
+    if (TEST) showToast(input.isTouch ? '測試模式：AI 能量已滿，撳「AI 加速」試吓' : '測試模式：AI 能量已滿，按 E 試吓');
+    else if (found.size === CHECKPOINTS.length) showToast('全部寶藏已搵齊，隨便行吓！');
   };
   startBtn.addEventListener('click', start);
   window.addEventListener('keydown', (e) => {
@@ -773,6 +821,7 @@ function boot() {
   const boostBtn = $<HTMLButtonElement>('boost-btn');
   const energyEl = $('energy');
   const pips = [...energyEl.querySelectorAll<HTMLElement>('i')];
+  const boostCount = $('boost-count');
   const canBoost = () => state === 'play' && boost.phase === 'idle' && boost.energy >= ENERGY_MAX;
   const syncEnergy = () => {
     const fill = boost.phase === 'active' ? ENERGY_MAX * (1 - boost.t / BOOST_TIME.active) : boost.phase === 'idle' ? boost.energy + boost.recharge / RECHARGE_SECONDS : 0;
@@ -780,11 +829,28 @@ function boot() {
     energyEl.classList.toggle('full', canBoost());
     energyEl.setAttribute('aria-valuenow', String(boost.energy));
     const ready = canBoost();
-    if (boostBtn.hidden === ready) boostBtn.hidden = !ready;
-    boostBtn.disabled = !ready;
+    // Touch players always see the button (locked with the count) so they know the feature exists.
+    const show = ready || (input.isTouch && boost.phase === 'idle');
+    if (boostBtn.hidden === show) boostBtn.hidden = !show;
+    boostBtn.classList.toggle('locked', !ready);
+    boostBtn.setAttribute('aria-disabled', String(!ready));
+    const count = `${boost.energy}/${ENERGY_MAX}`;
+    if (boostCount.textContent !== count) boostCount.textContent = count;
+    boostBtn.setAttribute('aria-label', ready ? 'AI 加速' : `AI 加速（能量 ${count}）`);
+  };
+  /** Explains why AI Boost can't start yet and how to fill the meter. */
+  const boostLockedToast = () => {
+    const left = CHECKPOINTS.length - found.size;
+    const missing = ENERGY_MAX - boost.energy;
+    const how =
+      left >= missing ? `再解鎖 ${missing} 個地標就用得！` : left > 0 ? `再解鎖 ${left} 個地標，之後會自動充電！` : '稍等自動充電就用得！';
+    showToast(`AI 能量未滿（${boost.energy}/${ENERGY_MAX}），${how}`, true);
   };
   const triggerBoost = () => {
-    if (!canBoost()) return false;
+    if (!canBoost()) {
+      if (state === 'play' && boost.phase === 'idle') boostLockedToast();
+      return false;
+    }
     boost.phase = 'transform';
     boost.t = 0;
     boost.energy = 0;
@@ -809,6 +875,11 @@ function boot() {
     boost.k = 0;
     boost.thrust = 0;
     avatar.armor(0, 0, 0);
+    if (TEST) {
+      boost.energy = ENERGY_MAX;
+      boost.announced = true;
+    }
+    syncEnergy();
   };
   boostBtn.addEventListener('pointerdown', (e) => {
     e.preventDefault();
@@ -921,6 +992,7 @@ function boot() {
   let ambTick = 0;
   let saveTick = 0;
   const statsEl = $('stats');
+  statsEl.hidden = !DEBUG;
   let freezeTitleCam = false;
   const focusV = new THREE.Vector3();
 
@@ -945,7 +1017,7 @@ function boot() {
       v.gem.position.y = 2.3 + Math.sin(t * 2.4) * 0.25;
       v.ring.scale.setScalar(1 + Math.sin(t * 3) * 0.04);
     }
-    burst.update(dt);
+    burst.update(realDt);
 
     if (state === 'title') {
       if (!freezeTitleCam) {
@@ -959,6 +1031,14 @@ function boot() {
       guide.mesh.visible = false;
     } else {
       const res = state === 'play' ? stepPlayer(dt) : { move: 0, running: false };
+      if (pinY !== null) {
+        player.pos.y = pinY;
+        player.vy = 0;
+        player.grounded = pinY <= BASE_Y + 0.02;
+        avatar.root.position.y = pinY;
+        blob.scale.setScalar(Math.max(0.3, 1 - (pinY - BASE_Y) * 0.08));
+      }
+      cine?.update(realDt);
       if (state !== 'play') input.poll();
       updateBoost(realDt, res.move);
       avatar.armor(boost.k, boost.thrust, t);
@@ -967,7 +1047,7 @@ function boot() {
       if (stepped) sound.step(res.running);
       updateCamera(dt, res.move);
       if (camOverride) {
-        camOverride(camera, (clock.t - recT0) / 1000);
+        camOverride(camera, recTime());
         avatar.root.visible = true;
       }
       updateIdleHint(res.move > 0.05 || !player.grounded || Math.hypot(input.move.x, input.move.y) > 0.05);
@@ -1015,7 +1095,7 @@ function boot() {
     renderer.render(scene, camera);
 
     fpsFrames++;
-    fpsTime += dt;
+    fpsTime += realDt;
     if (fpsTime >= 1) {
       fps = Math.round(fpsFrames / fpsTime);
       fpsFrames = 0;
@@ -1137,10 +1217,34 @@ function boot() {
       return btoa(bin);
     },
     /** Must run in the same task as the render (the drawing buffer is not preserved). */
-    tick: (ms: number) => {
+    /** Advances game time by `ms`; `videoT` (s) is the capture time used for sound and camera timing. */
+    tick: (ms: number, videoT?: number) => {
       clock.t += ms;
-      return (clock.t - recT0) / 1000;
+      recVT = videoT ?? null;
+      return recTime();
     },
+    pinY: (y: number | null) => {
+      pinY = y;
+    },
+    /** Avatar cinematic controls: land crouch, plate fly-in distance, thruster flame multiplier. */
+    avatarFx: (o: Partial<{ land: number; fly: number; flame: number }>) => Object.assign(avatar.fx, o),
+    impact: (x: number, z: number) => {
+      if (!cine) {
+        cine = new CinematicFx();
+        scene.add(cine.group);
+      }
+      cine.impact(x, BASE_Y - 0.02, z);
+      sound.impact();
+    },
+    ring: (y: number, color: string, life: number, r1: number) => {
+      if (!cine) {
+        cine = new CinematicFx();
+        scene.add(cine.group);
+      }
+      cine.ring(player.pos.x, player.pos.y + y, player.pos.z, color, life, 0.3, r1, 0.9);
+    },
+    clank: () => sound.clank(),
+    sparkle: (y: number, n: number) => burst.fire(player.pos.x, player.pos.y + y, player.pos.z, n),
     renderGrab: (type = 'image/png', quality = 0.92) => {
       frame(clock.t);
       return canvas.toDataURL(type, quality);
@@ -1173,7 +1277,12 @@ function boot() {
       fps,
       boost: { phase: boost.phase, t: boost.t, k: boost.k, energy: boost.energy, thrust: boost.thrust },
       trailPoints: trail.points,
-      boostBtn: { hidden: boostBtn.hidden, disabled: boostBtn.disabled },
+      boostBtn: { hidden: boostBtn.hidden, disabled: boostBtn.disabled, locked: boostBtn.classList.contains('locked'), count: boostCount.textContent },
+      toast: toast.classList.contains('show') ? toast.textContent : '',
+      test: TEST,
+      minimapLabelPx: minimap.labelPx,
+      burst: { active: burst.active, spread: burst.spread, size: (burst.points.material as THREE.PointsMaterial).size },
+      celebrate: celebrateEl.childElementCount,
       insideSolid: insideSolid(),
       vel: Math.hypot(player.vel.x, player.vel.z),
       ...renderer.info.render,
